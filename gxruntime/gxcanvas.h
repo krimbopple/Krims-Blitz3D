@@ -28,6 +28,11 @@ public:
 	bool clip( RECT *d,RECT *s )const;
 	void damage( const RECT &r )const;
 
+	int getColorR() const { return color_r; }
+	int getColorG() const { return color_g; }
+	int getColorB() const { return color_b; }
+	int getColorA() const { return color_a; }
+
 private:
 	int flags,cube_mode;
 	gxGraphics *graphics;
@@ -51,6 +56,9 @@ private:
 	RECT viewport;
 	int origin_x,origin_y,handle_x,handle_y;
 	unsigned mask_surf,color_surf,color_argb,clsColor_surf;
+
+	int color_alpha;
+	int color_r, color_g, color_b, color_a;
 
 	void updateBitMask( const RECT &r )const;
 
@@ -89,6 +97,7 @@ public:
 	//MANIPULATORS
 	void setFont( gxFont *font );
 	void setMask( unsigned argb );
+	void setPixelAlpha(int x, int y, unsigned argb);
 	void setColor( unsigned argb );
 	void setClsColor( unsigned argb );
 	void setOrigin( int x,int y );
@@ -99,6 +108,9 @@ public:
 	void plot( int x,int y );
 	void line( int x,int y,int x2,int y2 );
 	void rect( int x,int y,int w,int h,bool solid );
+	void rectAlpha(int x, int y, int w, int h, bool solid);
+	void rectGlow(int x, int y, int w, int h, int thickness);
+	void roundedRect(int x, int y, int w, int h, int radius, bool solid);
 	void oval( int x,int y,int w,int h,bool solid );
 	void text( int x,int y,const std::string &t );
 	void blit( int x,int y,gxCanvas *src,int src_x,int src_y,int src_w,int src_h,bool solid );

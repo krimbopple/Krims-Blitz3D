@@ -558,24 +558,34 @@ void bbViewport( int x,int y,int w,int h ){
 	gx_canvas->setViewport( x,y,w,h );
 }
 
-void bbColor( int r,int g,int b ){
-	gx_canvas->setColor( curr_color=(r<<16)|(g<<8)|b );
+void bbColor(int r, int g, int b, int a) {
+	r = r & 0xff;
+	g = g & 0xff;
+	b = b & 0xff;
+	a = a & 0xff;
+
+	curr_color = (a << 24) | (r << 16) | (g << 8) | b;
+	gx_canvas->setColor(curr_color);
 }
 
-void bbGetColor( int x,int y ){
-	gx_canvas->setColor( curr_color=gx_canvas->getPixel( x,y ) );
+void bbGetColor(int x, int y) {
+	gx_canvas->setColor(curr_color = gx_canvas->getPixel(x, y));
 }
 
-int bbColorRed(){
-	return (gx_canvas->getColor()>>16)&0xff;
+int bbColorRed() {
+	return gx_canvas->getColorR();
 }
 
-int bbColorGreen(){
-	return (gx_canvas->getColor()>>8)&0xff;
+int bbColorGreen() {
+	return gx_canvas->getColorG();
 }
 
-int bbColorBlue(){
-	return gx_canvas->getColor()&0xff;
+int bbColorBlue() {
+	return gx_canvas->getColorB();
+}
+
+int bbColorAlpha() {
+	return gx_canvas->getColorA();
 }
 
 void bbClsColor( int r,int g,int b ){
@@ -601,6 +611,18 @@ void bbLine( int x1,int y1,int x2,int y2 ){
 
 void bbRect( int x,int y,int w,int h,int solid ){
 	gx_canvas->rect( x,y,w,h,solid ? true : false );
+}
+
+void bbAlphaRect(int x, int y, int w, int h, int solid) {
+	gx_canvas->rectAlpha(x, y, w, h, solid ? true : false);
+}
+
+void bbRectGlow(int x, int y, int w, int h, int thickness) {
+	gx_canvas->rectGlow(x, y, w, h, thickness);
+}
+
+void bbRoundedRect(int x, int y, int w, int h, int radius, int solid) {
+	gx_canvas->roundedRect(x, y, w, h, radius, solid ? true : false);
 }
 
 void bbOval( int x,int y,int w,int h,int solid ){

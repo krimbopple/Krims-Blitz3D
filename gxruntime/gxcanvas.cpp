@@ -76,6 +76,38 @@ static bool clip( const RECT &viewport,RECT *d,RECT *s ){
 	return true;
 }
 
+// this shit is pretty horrendous but nobody should see this code, so it's fine
+unsigned blendColors(unsigned dest, unsigned src, int alpha) { 
+	if (alpha == 255) return src;
+	if (alpha == 0) return dest;
+
+	int dest_a = (dest >> 24) & 0xff;
+	int dest_r = (dest >> 16) & 0xff;
+	int dest_g = (dest >> 8) & 0xff;
+	int dest_b = dest & 0xff;
+
+	int src_a = (src >> 24) & 0xff;
+	int src_r = (src >> 16) & 0xff;
+	int src_g = (src >> 8) & 0xff;
+	int src_b = src & 0xff;
+
+	int effective_alpha = (src_a * alpha) / 255;
+	if (effective_alpha == 0) return dest;
+	if (effective_alpha == 255) return src;
+
+	float a = effective_alpha / 255.0f;
+	float inv_a = 1.0f - a;
+
+	int r = (int)(src_r * a + dest_r * inv_a);
+	int g = (int)(src_g * a + dest_g * inv_a);
+	int b = (int)(src_b * a + dest_b * inv_a);
+
+	int a_final = effective_alpha + (dest_a * (255 - effective_alpha) / 255);
+	if (a_final > 255) a_final = 255;
+
+	return (a_final << 24) | (r << 16) | (g << 8) | b;
+}
+
 gxCanvas::gxCanvas( gxGraphics *g,IDirectDrawSurface7 *s,int f ):
 graphics(g),main_surf(s),surf(0),z_surf(0),flags(f),cube_mode(CUBEMODE_REFLECTION|CUBESPACE_WORLD),
 t_surf(0),cm_mask(0),locked_cnt(0),mod_cnt(0),remip_cnt(0){
@@ -259,10 +291,17 @@ void gxCanvas::setMask( unsigned argb ){
 	mask_surf=format.fromARGB( argb );
 }
 
-void gxCanvas::setColor( unsigned argb ){
-	argb|=0xff000000;
-	color_argb=argb;
-	color_surf=format.fromARGB( argb );
+void gxCanvas::setColor(unsigned argb) {
+	color_argb = argb;
+	color_a = (argb >> 24) & 0xff;
+	color_r = (argb >> 16) & 0xff;
+	color_g = (argb >> 8) & 0xff;
+	color_b = argb & 0xff;
+
+	// we store color_surf_opaque for DirectDraw blits & color_argb for alpha blending
+	unsigned opaque_argb = 0xff000000 | (color_r << 16) | (color_g << 8) | color_b;
+	color_surf = format.fromARGB(opaque_argb);
+	color_alpha = color_a;
 }
 
 void gxCanvas::setClsColor( unsigned argb ){
@@ -291,74 +330,102 @@ void gxCanvas::cls(){
 	damage( viewport );
 }
 
-void gxCanvas::plot( int x,int y ){
-	x+=origin_x;if( x<viewport.left || x>=viewport.right ) return;
-	y+=origin_y;if( y<viewport.top || y>=viewport.bottom ) return;
-	bltfx.dwFillColor=color_surf;
-	Rect dest( x,y,1,1 );
-	surf->Blt( &dest,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
-	damage( dest );
+void gxCanvas::plot(int x, int y) {
+	x += origin_x; if (x < viewport.left || x >= viewport.right) return;
+	y += origin_y; if (y < viewport.top || y >= viewport.bottom) return;
+
+	if (color_alpha == 255) {
+		bltfx.dwFillColor = color_surf;
+		Rect dest(x, y, 1, 1);
+		surf->Blt(&dest, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+	}
+	else {
+		lock();
+		setPixelAlpha(x, y, color_argb);
+		unlock();
+	}
+	damage(Rect(x, y, 1, 1));
 }
 
-void gxCanvas::line( int x0,int y0,int x1,int y1 ){
-	int ddf,padj,sadj;
-	int dx,dy,sx,sy,ax,ay;
+void gxCanvas::line(int x0, int y0, int x1, int y1) {
+	int ddf, padj, sadj;
+	int dx, dy, sx, sy, ax, ay;
 
-	x0+=origin_x;y0+=origin_y;
-	x1+=origin_x;y1+=origin_y;
+	x0 += origin_x; y0 += origin_y;
+	x1 += origin_x; y1 += origin_y;
 
-	int cx0,cx1,cy0,cy1,clip0,clip1;
+	int cx0, cx1, cy0, cy1, clip0, clip1;
 
-	cx0=viewport.left;
-	cx1=viewport.right-1;
-	cy0=viewport.top;
-	cy1=viewport.bottom-1;
+	cx0 = viewport.left;
+	cx1 = viewport.right - 1;
+	cy0 = viewport.top;
+	cy1 = viewport.bottom - 1;
 
-	while( true ){
-		clip0=0;clip1=0;
-		
-		if(y0>cy1)clip0|=1;else if(y0<cy0)clip0|=2;
-		if(x0>cx1)clip0|=4;else if(x0<cx0)clip0|=8;
-		if(y1>cy1)clip1|=1;else if(y1<cy0)clip1|=2;
-		if(x1>cx1)clip1|=4;else if(x1<cx0)clip1|=8;
+	while (true) {
+		clip0 = 0; clip1 = 0;
 
-		if((clip0|clip1)==0) break;		//draw line
-		if((clip0&clip1)!=0) return;	//outside
+		if (y0 > cy1)clip0 |= 1; else if (y0 < cy0)clip0 |= 2;
+		if (x0 > cx1)clip0 |= 4; else if (x0 < cx0)clip0 |= 8;
+		if (y1 > cy1)clip1 |= 1; else if (y1 < cy0)clip1 |= 2;
+		if (x1 > cx1)clip1 |= 4; else if (x1 < cx0)clip1 |= 8;
 
-		if((clip0&1)==1) {x0=x0+((x1-x0)*(cy1-y0))/(y1-y0);y0=cy1;continue;}
-		if((clip0&2)==2) {x0=x0+((x1-x0)*(cy0-y0))/(y1-y0);y0=cy0;continue;}
-		if((clip0&4)==4) {y0=y0+((y1-y0)*(cx1-x0))/(x1-x0);x0=cx1;continue;}
-		if((clip0&8)==8) {y0=y0+((y1-y0)*(cx0-x0))/(x1-x0);x0=cx0;continue;}
+		if ((clip0 | clip1) == 0) break;		//draw line
+		if ((clip0 & clip1) != 0) return;	//outside
 
-		if((clip1&1)==1) {x1=x0+((x1-x0)*(cy1-y0))/(y1-y0);y1=cy1;continue;}
-		if((clip1&2)==2) {x1=x0+((x1-x0)*(cy0-y0))/(y1-y0);y1=cy0;continue;}
-		if((clip1&4)==4) {y1=y0+((y1-y0)*(cx1-x0))/(x1-x0);x1=cx1;continue;}
-		if((clip1&8)==8) {y1=y0+((y1-y0)*(cx0-x0))/(x1-x0);x1=cx0;continue;}
+		if ((clip0 & 1) == 1) { x0 = x0 + ((x1 - x0) * (cy1 - y0)) / (y1 - y0); y0 = cy1; continue; }
+		if ((clip0 & 2) == 2) { x0 = x0 + ((x1 - x0) * (cy0 - y0)) / (y1 - y0); y0 = cy0; continue; }
+		if ((clip0 & 4) == 4) { y0 = y0 + ((y1 - y0) * (cx1 - x0)) / (x1 - x0); x0 = cx1; continue; }
+		if ((clip0 & 8) == 8) { y0 = y0 + ((y1 - y0) * (cx0 - x0)) / (x1 - x0); x0 = cx0; continue; }
+
+		if ((clip1 & 1) == 1) { x1 = x0 + ((x1 - x0) * (cy1 - y0)) / (y1 - y0); y1 = cy1; continue; }
+		if ((clip1 & 2) == 2) { x1 = x0 + ((x1 - x0) * (cy0 - y0)) / (y1 - y0); y1 = cy0; continue; }
+		if ((clip1 & 4) == 4) { y1 = y0 + ((y1 - y0) * (cx1 - x0)) / (x1 - x0); x1 = cx1; continue; }
+		if ((clip1 & 8) == 8) { y1 = y0 + ((y1 - y0) * (cx0 - x0)) / (x1 - x0); x1 = cx0; continue; }
 	}
 
-	dx=x1-x0;dy=y1-y0;
-	if( (dx|dy)==0 ){
-		setPixel( x0,y0,color_argb );
+	dx = x1 - x0; dy = y1 - y0;
+	if ((dx | dy) == 0) {
+		plot(x0 - origin_x, y0 - origin_y);
 		return;
 	}
 
-	if (dx>=0) {sx=1;ax=dx;} else {sx=-1;ax=-dx;}
-	if (dy>=0) {sy=1;ay=dy;} else {sy=-1;ay=-dy;}
+	if (dx >= 0) { sx = 1; ax = dx; }
+	else { sx = -1; ax = -dx; }
+	if (dy >= 0) { sy = 1; ay = dy; }
+	else { sy = -1; ay = -dy; }
 
 	lock();
-	if( ax>ay ){
-		ddf=-ax;sadj=ax+ax;padj=ay+ay;
-		while( ax-->=0 ){
-			setPixelFast( x0,y0,color_argb );
-			x0+=sx;ddf+=padj;if( ddf>=0 ){ y0+=sy;ddf-=sadj; }
+	if (color_alpha == 255) {
+		if (ax > ay) {
+			ddf = -ax; sadj = ax + ax; padj = ay + ay;
+			while (ax-- >= 0) {
+				setPixelFast(x0, y0, color_argb);
+				x0 += sx; ddf += padj; if (ddf >= 0) { y0 += sy; ddf -= sadj; }
+			}
 		}
-	}else{
-		ddf=-ay;sadj=ay+ay;padj=ax+ax;
-		while( ay-->=0 ){
-			setPixelFast( x0,y0,color_argb );
-			y0+=sy;ddf+=padj;if( ddf>=0 ){ x0+=sx;ddf-=sadj; }
+		else {
+			ddf = -ay; sadj = ay + ay; padj = ax + ax;
+			while (ay-- >= 0) {
+				setPixelFast(x0, y0, color_argb);
+				y0 += sy; ddf += padj; if (ddf >= 0) { x0 += sx; ddf -= sadj; }
+			}
 		}
-	
+	}
+	else {
+		if (ax > ay) {
+			ddf = -ax; sadj = ax + ax; padj = ay + ay;
+			while (ax-- >= 0) {
+				setPixelAlpha(x0, y0, color_argb);
+				x0 += sx; ddf += padj; if (ddf >= 0) { y0 += sy; ddf -= sadj; }
+			}
+		}
+		else {
+			ddf = -ay; sadj = ay + ay; padj = ax + ax;
+			while (ay-- >= 0) {
+				setPixelAlpha(x0, y0, color_argb);
+				y0 += sy; ddf += padj; if (ddf >= 0) { x0 += sx; ddf -= sadj; }
+			}
+		}
 	}
 	unlock();
 }
@@ -390,59 +457,615 @@ void gxCanvas::rect( int x,int y,int w,int h,bool solid ){
 	damage( dest );
 }
 
-void gxCanvas::oval( int x1,int y1,int w,int h,bool solid ){
-	x1+=origin_x;y1+=origin_y;
-	Rect dest( x1,y1,w,h );
-	if( !clip( &dest ) ) return;
+void gxCanvas::rectAlpha(int x, int y, int w, int h, bool solid) {
+	x += origin_x; y += origin_y;
+	Rect dest(x, y, w, h);
+	if (!clip(&dest)) return;
 
-	bltfx.dwFillColor=color_surf;
+	if (color_a == 0) return;
 
-	float xr=w*.5f,yr=h*.5f,ar=(float)w/(float)h;
-	float cx=x1+xr+.5f,cy=y1+yr-.5f,rsq=yr*yr,y;
+	if (color_a == 255) {
+		bltfx.dwFillColor = color_surf;
 
-	if( solid ){
-		y=dest.top-cy;
-		for( int t=dest.top;t<dest.bottom;++y,++t ){
-			float x = sqrtf(rsq - y * y) * ar;
-			int xa=floor( cx-x ),xb=floor( cx+x );
-			if( xb<=xa || xa>=viewport.right || xb<=viewport.left ) continue;
-			Rect dr;dr.top=t;dr.bottom=t+1;
-			dr.left=xa<viewport.left ? viewport.left : xa;
-			dr.right=xb>viewport.right ? viewport.right : xb;
-			surf->Blt( &dr,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
+		if (solid) {
+			surf->Blt(&dest, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
 		}
-		damage( dest );
+		else {
+			Rect r1(x, y, w, 1); if (clip(&r1)) {
+				surf->Blt(&r1, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+			Rect r2(x, y, 1, h); if (clip(&r2)) {
+				surf->Blt(&r2, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+			Rect r3(x + w - 1, y, 1, h); if (clip(&r3)) {
+				surf->Blt(&r3, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+			Rect r4(x, y + h - 1, w, 1); if (clip(&r4)) {
+				surf->Blt(&r4, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+		}
+	}
+	else {
+		lock();
+
+		if (solid) {
+			for (int py = dest.top; py < dest.bottom; ++py) {
+				for (int px = dest.left; px < dest.right; ++px) {
+					setPixelAlpha(px, py, color_argb);
+				}
+			}
+		}
+		else {
+			if (dest.top >= viewport.top && dest.top < viewport.bottom) {
+				for (int px = dest.left; px < dest.right; ++px) {
+					if (px >= viewport.left && px < viewport.right) {
+						setPixelAlpha(px, dest.top, color_argb);
+					}
+				}
+			}
+
+			int bottom_y = y + h - 1;
+			if (bottom_y >= viewport.top && bottom_y < viewport.bottom && bottom_y >= dest.top) {
+				for (int px = dest.left; px < dest.right; ++px) {
+					if (px >= viewport.left && px < viewport.right) {
+						setPixelAlpha(px, bottom_y, color_argb);
+					}
+				}
+			}
+
+			for (int py = dest.top; py < dest.bottom; ++py) {
+				if (py >= viewport.top && py < viewport.bottom) {
+					if (dest.left >= viewport.left && dest.left < viewport.right) {
+						setPixelAlpha(dest.left, py, color_argb);
+					}
+				}
+			}
+
+			int right_x = x + w - 1;
+			if (right_x >= viewport.left && right_x < viewport.right && right_x >= dest.left) {
+				for (int py = dest.top; py < dest.bottom; ++py) {
+					if (py >= viewport.top && py < viewport.bottom) {
+						setPixelAlpha(right_x, py, color_argb);
+					}
+				}
+			}
+		}
+
+		unlock();
+	}
+
+	damage(dest);
+}
+
+void gxCanvas::rectGlow(int x, int y, int w, int h, int thickness) {
+	x += origin_x; y += origin_y;
+
+	Rect glow_dest(x - thickness, y - thickness, w + 2 * thickness, h + 2 * thickness);
+	if (!clip(&glow_dest)) return;
+
+	if (color_a == 0) return;
+
+	unsigned original_argb = color_argb;
+	int original_a = color_a;
+
+	lock();
+
+	for (int t = 0; t < thickness; ++t) {
+		float distance_factor = 1.0f - ((float)t / (float)thickness);
+		int current_a = (int)(original_a * distance_factor * distance_factor);
+
+		if (current_a == 0) continue;
+
+		unsigned current_argb = (current_a << 24) | (color_r << 16) | (color_g << 8) | color_b;
+
+		int glow_x = x - t;
+		int glow_y = y - t;
+		int glow_w = w + 2 * t;
+		int glow_h = h + 2 * t;
+
+		for (int px = glow_x; px < glow_x + glow_w; ++px) {
+			if (px >= viewport.left && px < viewport.right &&
+				glow_y >= viewport.top && glow_y < viewport.bottom) {
+				setPixelAlpha(px, glow_y, current_argb);
+			}
+		}
+
+		int glow_bottom_y = glow_y + glow_h - 1;
+		if (glow_bottom_y >= viewport.top && glow_bottom_y < viewport.bottom) {
+			for (int px = glow_x; px < glow_x + glow_w; ++px) {
+				if (px >= viewport.left && px < viewport.right) {
+					setPixelAlpha(px, glow_bottom_y, current_argb);
+				}
+			}
+		}
+
+		for (int py = glow_y; py < glow_y + glow_h; ++py) {
+			if (py >= viewport.top && py < viewport.bottom &&
+				glow_x >= viewport.left && glow_x < viewport.right) {
+				setPixelAlpha(glow_x, py, current_argb);
+			}
+		}
+
+		int glow_right_x = glow_x + glow_w - 1;
+		if (glow_right_x >= viewport.left && glow_right_x < viewport.right) {
+			for (int py = glow_y; py < glow_y + glow_h; ++py) {
+				if (py >= viewport.top && py < viewport.bottom) {
+					setPixelAlpha(glow_right_x, py, current_argb);
+				}
+			}
+		}
+	}
+
+	unsigned main_argb = original_argb;
+
+	// top
+	for (int px = x; px < x + w; ++px) {
+		if (px >= viewport.left && px < viewport.right &&
+			y >= viewport.top && y < viewport.bottom) {
+			setPixelAlpha(px, y, main_argb);
+		}
+	}
+
+	// bottom
+	int bottom_y = y + h - 1;
+	if (bottom_y >= viewport.top && bottom_y < viewport.bottom) {
+		for (int px = x; px < x + w; ++px) {
+			if (px >= viewport.left && px < viewport.right) {
+				setPixelAlpha(px, bottom_y, main_argb);
+			}
+		}
+	}
+
+	// left
+	for (int py = y; py < y + h; ++py) {
+		if (py >= viewport.top && py < viewport.bottom &&
+			x >= viewport.left && x < viewport.right) {
+			setPixelAlpha(x, py, main_argb);
+		}
+	}
+
+	// right
+	int right_x = x + w - 1;
+	if (right_x >= viewport.left && right_x < viewport.right) {
+		for (int py = y; py < y + h; ++py) {
+			if (py >= viewport.top && py < viewport.bottom) {
+				setPixelAlpha(right_x, py, main_argb);
+			}
+		}
+	}
+
+	unlock();
+
+	color_argb = original_argb;
+	color_a = original_a;
+
+	damage(glow_dest);
+}
+// don't do drugs kids
+void gxCanvas::roundedRect(int x, int y, int w, int h, int radius, bool solid) {
+	x += origin_x; y += origin_y;
+
+	if (radius <= 0) {
+		rectAlpha(x - origin_x, y - origin_y, w, h, solid);
 		return;
 	}
 
-	int p_xa,p_xb,t,hh=floor(cy);
+	if (radius > w / 2) radius = w / 2;
+	if (radius > h / 2) radius = h / 2;
 
-	p_xa=p_xb=cx;
-	t=dest.top;y=t-cy;
-	if( dest.top>y1 ){ --t;--y; }
-	for( ;t<=hh;++y,++t ){
-		float x = sqrtf(rsq - y * y) * ar;
-		int xa=floor( cx-x ),xb=floor( cx+x );
-		Rect r1( xa,t,p_xa-xa,1 );if( r1.right<=r1.left ) r1.right=r1.left+1;
-		if( clip( &r1 ) ) surf->Blt( &r1,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
-		Rect r2( p_xb,t,xb-p_xb,1 );if( r2.left>=r2.right ) r2.left=r2.right-1;
-		if( clip( &r2 ) ) surf->Blt( &r2,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
-		p_xa=xa;p_xb=xb;
+	Rect dest(x, y, w, h);
+	if (!clip(&dest)) return;
+
+	if (color_a == 0) return;
+
+	int tl_cx = x + radius;
+	int tl_cy = y + radius;
+	int tr_cx = x + w - radius - 1;
+	int tr_cy = y + radius;
+	int bl_cx = x + radius;
+	int bl_cy = y + h - radius - 1;
+	int br_cx = x + w - radius - 1;
+	int br_cy = y + h - radius - 1;
+
+	int radius_sq = radius * radius;
+
+	if (color_a == 255) {
+		bltfx.dwFillColor = color_surf;
+
+		if (solid) {
+			Rect center_rect(x + radius, y + radius, w - 2 * radius, h - 2 * radius);
+			if (center_rect.left < center_rect.right && center_rect.top < center_rect.bottom) {
+				if (clip(&center_rect)) {
+					surf->Blt(&center_rect, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				}
+			}
+
+			Rect top_rect(x + radius, y, w - 2 * radius, radius);
+			if (top_rect.left < top_rect.right && top_rect.top < top_rect.bottom) {
+				if (clip(&top_rect)) {
+					surf->Blt(&top_rect, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				}
+			}
+
+			Rect bottom_rect(x + radius, y + h - radius, w - 2 * radius, radius);
+			if (bottom_rect.left < bottom_rect.right && bottom_rect.top < bottom_rect.bottom) {
+				if (clip(&bottom_rect)) {
+					surf->Blt(&bottom_rect, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				}
+			}
+
+			Rect left_rect(x, y + radius, radius, h - 2 * radius);
+			if (left_rect.left < left_rect.right && left_rect.top < left_rect.bottom) {
+				if (clip(&left_rect)) {
+					surf->Blt(&left_rect, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				}
+			}
+
+			Rect right_rect(x + w - radius, y + radius, radius, h - 2 * radius);
+			if (right_rect.left < right_rect.right && right_rect.top < right_rect.bottom) {
+				if (clip(&right_rect)) {
+					surf->Blt(&right_rect, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				}
+			}
+
+			lock();
+
+			// top-left
+			for (int py = y; py < y + radius; ++py) {
+				int dy = py - tl_cy;
+				int dx_sq = radius_sq - dy * dy;
+				if (dx_sq < 0) continue;
+				int dx = (int)sqrt(dx_sq);
+				int x_start = tl_cx - dx;
+				int x_end = tl_cx;
+
+				for (int px = x_start; px <= x_end; ++px) {
+					if (px >= viewport.left && px < viewport.right &&
+						py >= viewport.top && py < viewport.bottom) {
+						setPixelFast(px, py, color_argb);
+					}
+				}
+			}
+
+			// top-right
+			for (int py = y; py < y + radius; ++py) {
+				int dy = py - tr_cy;
+				int dx_sq = radius_sq - dy * dy;
+				if (dx_sq < 0) continue;
+				int dx = (int)sqrt(dx_sq);
+				int x_start = tr_cx;
+				int x_end = tr_cx + dx;
+
+				for (int px = x_start; px <= x_end; ++px) {
+					if (px >= viewport.left && px < viewport.right &&
+						py >= viewport.top && py < viewport.bottom) {
+						setPixelFast(px, py, color_argb);
+					}
+				}
+			}
+
+			// bottom-left
+			for (int py = y + h - radius; py < y + h; ++py) {
+				int dy = py - bl_cy;
+				int dx_sq = radius_sq - dy * dy;
+				if (dx_sq < 0) continue;
+				int dx = (int)sqrt(dx_sq);
+				int x_start = bl_cx - dx;
+				int x_end = bl_cx;
+
+				for (int px = x_start; px <= x_end; ++px) {
+					if (px >= viewport.left && px < viewport.right &&
+						py >= viewport.top && py < viewport.bottom) {
+						setPixelFast(px, py, color_argb);
+					}
+				}
+			}
+
+			// bottom-right
+			for (int py = y + h - radius; py < y + h; ++py) {
+				int dy = py - br_cy;
+				int dx_sq = radius_sq - dy * dy;
+				if (dx_sq < 0) continue;
+				int dx = (int)sqrt(dx_sq);
+				int x_start = br_cx;
+				int x_end = br_cx + dx;
+
+				for (int px = x_start; px <= x_end; ++px) {
+					if (px >= viewport.left && px < viewport.right &&
+						py >= viewport.top && py < viewport.bottom) {
+						setPixelFast(px, py, color_argb);
+					}
+				}
+			}
+
+			unlock();
+		}
+		else {
+			Rect top_line(x + radius, y, w - 2 * radius, 1);
+			if (clip(&top_line)) {
+				surf->Blt(&top_line, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+
+			Rect bottom_line(x + radius, y + h - 1, w - 2 * radius, 1);
+			if (clip(&bottom_line)) {
+				surf->Blt(&bottom_line, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+
+			Rect left_line(x, y + radius, 1, h - 2 * radius);
+			if (clip(&left_line)) {
+				surf->Blt(&left_line, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+
+			Rect right_line(x + w - 1, y + radius, 1, h - 2 * radius);
+			if (clip(&right_line)) {
+				surf->Blt(&right_line, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+
+			lock();
+
+			int f = 1 - radius;
+			int ddF_x = 0;
+			int ddF_y = -2 * radius;
+			int xc = 0;
+			int yc = radius;
+
+			while (xc <= yc) {
+				// top-left
+				setPixelFast(tl_cx - xc, tl_cy - yc, color_argb);
+				setPixelFast(tl_cx - yc, tl_cy - xc, color_argb);
+
+				// top-right
+				setPixelFast(tr_cx + xc, tr_cy - yc, color_argb);
+				setPixelFast(tr_cx + yc, tr_cy - xc, color_argb);
+
+				// bottom-left
+				setPixelFast(bl_cx - xc, bl_cy + yc, color_argb);
+				setPixelFast(bl_cx - yc, bl_cy + xc, color_argb);
+
+				// bottom-right
+				setPixelFast(br_cx + xc, br_cy + yc, color_argb);
+				setPixelFast(br_cx + yc, br_cy + xc, color_argb);
+
+				if (f >= 0) {
+					yc--;
+					ddF_y += 2;
+					f += ddF_y;
+				}
+				xc++;
+				ddF_x += 2;
+				f += ddF_x + 1;
+			}
+
+			unlock();
+		}
+	}
+	else {
+		lock();
+
+		if (solid) {
+			for (int py = dest.top; py < dest.bottom; ++py) {
+				for (int px = dest.left; px < dest.right; ++px) {
+					bool inside = true;
+
+					if (px >= x && px < x + w && py >= y && py < y + h) {
+						if (px < x + radius && py < y + radius) {
+							// top-left
+							int dx = px - tl_cx;
+							int dy = py - tl_cy;
+							if (dx * dx + dy * dy > radius_sq) {
+								inside = false;
+							}
+						}
+						else if (px >= x + w - radius && py < y + radius) {
+							// top-right
+							int dx = px - tr_cx;
+							int dy = py - tr_cy;
+							if (dx * dx + dy * dy > radius_sq) {
+								inside = false;
+							}
+						}
+						else if (px < x + radius && py >= y + h - radius) {
+							// bottom-left
+							int dx = px - bl_cx;
+							int dy = py - bl_cy;
+							if (dx * dx + dy * dy > radius_sq) {
+								inside = false;
+							}
+						}
+						else if (px >= x + w - radius && py >= y + h - radius) {
+							// bottom-right
+							int dx = px - br_cx;
+							int dy = py - br_cy;
+							if (dx * dx + dy * dy > radius_sq) {
+								inside = false;
+							}
+						}
+					}
+					else {
+						inside = false;
+					}
+
+					if (inside) {
+						setPixelAlpha(px, py, color_argb);
+					}
+				}
+			}
+		}
+		else {
+			for (int px = x + radius; px < x + w - radius; ++px) {
+				if (px >= viewport.left && px < viewport.right &&
+					y >= viewport.top && y < viewport.bottom) {
+					setPixelAlpha(px, y, color_argb);
+				}
+			}
+
+			for (int px = x + radius; px < x + w - radius; ++px) {
+				if (px >= viewport.left && px < viewport.right &&
+					y + h - 1 >= viewport.top && y + h - 1 < viewport.bottom) {
+					setPixelAlpha(px, y + h - 1, color_argb);
+				}
+			}
+
+			for (int py = y + radius; py < y + h - radius; ++py) {
+				if (x >= viewport.left && x < viewport.right &&
+					py >= viewport.top && py < viewport.bottom) {
+					setPixelAlpha(x, py, color_argb);
+				}
+			}
+
+			for (int py = y + radius; py < y + h - radius; ++py) {
+				if (x + w - 1 >= viewport.left && x + w - 1 < viewport.right &&
+					py >= viewport.top && py < viewport.bottom) {
+					setPixelAlpha(x + w - 1, py, color_argb);
+				}
+			}
+
+			int f = 1 - radius;
+			int ddF_x = 0;
+			int ddF_y = -2 * radius;
+			int xc = 0;
+			int yc = radius;
+
+			while (xc <= yc) {
+				// top-left
+				if (tl_cx - xc >= viewport.left && tl_cx - xc < viewport.right &&
+					tl_cy - yc >= viewport.top && tl_cy - yc < viewport.bottom) {
+					setPixelAlpha(tl_cx - xc, tl_cy - yc, color_argb);
+				}
+				if (tl_cx - yc >= viewport.left && tl_cx - yc < viewport.right &&
+					tl_cy - xc >= viewport.top && tl_cy - xc < viewport.bottom) {
+					setPixelAlpha(tl_cx - yc, tl_cy - xc, color_argb);
+				}
+
+				// top-right
+				if (tr_cx + xc >= viewport.left && tr_cx + xc < viewport.right &&
+					tr_cy - yc >= viewport.top && tr_cy - yc < viewport.bottom) {
+					setPixelAlpha(tr_cx + xc, tr_cy - yc, color_argb);
+				}
+				if (tr_cx + yc >= viewport.left && tr_cx + yc < viewport.right &&
+					tr_cy - xc >= viewport.top && tr_cy - xc < viewport.bottom) {
+					setPixelAlpha(tr_cx + yc, tr_cy - xc, color_argb);
+				}
+
+				// bottom-left
+				if (bl_cx - xc >= viewport.left && bl_cx - xc < viewport.right &&
+					bl_cy + yc >= viewport.top && bl_cy + yc < viewport.bottom) {
+					setPixelAlpha(bl_cx - xc, bl_cy + yc, color_argb);
+				}
+				if (bl_cx - yc >= viewport.left && bl_cx - yc < viewport.right &&
+					bl_cy + xc >= viewport.top && bl_cy + xc < viewport.bottom) {
+					setPixelAlpha(bl_cx - yc, bl_cy + xc, color_argb);
+				}
+
+				// botttom-right
+				if (br_cx + xc >= viewport.left && br_cx + xc < viewport.right &&
+					br_cy + yc >= viewport.top && br_cy + yc < viewport.bottom) {
+					setPixelAlpha(br_cx + xc, br_cy + yc, color_argb);
+				}
+				if (br_cx + yc >= viewport.left && br_cx + yc < viewport.right &&
+					br_cy + xc >= viewport.top && br_cy + xc < viewport.bottom) {
+					setPixelAlpha(br_cx + yc, br_cy + xc, color_argb);
+				}
+
+				if (f >= 0) {
+					yc--;
+					ddF_y += 2;
+					f += ddF_y;
+				}
+				xc++;
+				ddF_x += 2;
+				f += ddF_x + 1;
+			}
+		}
+
+		unlock();
 	}
 
-	p_xa=p_xb=cx;
-	t=dest.bottom-1;y=t-cy;
-	if( dest.bottom<y1+h ){ ++t;++y; }
-	for( ;t>hh;--y,--t ){
-		float x = sqrtf(rsq - y * y) * ar;
-		int xa=floor( cx-x ),xb=floor( cx+x );
-		Rect r1( xa,t,p_xa-xa,1 );if( r1.right<=r1.left ) r1.right=r1.left+1;
-		if( clip( &r1 ) ) surf->Blt( &r1,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
-		Rect r2( p_xb,t,xb-p_xb,1 );if( r2.left>=r2.right ) r2.left=r2.right-1;
-		if( clip( &r2 ) ) surf->Blt( &r2,0,0,DDBLT_WAIT|DDBLT_COLORFILL,&bltfx );
-		p_xa=xa;p_xb=xb;
+	damage(dest);
+}
+
+void gxCanvas::oval(int x1, int y1, int w, int h, bool solid) {
+	x1 += origin_x; y1 += origin_y;
+	Rect dest(x1, y1, w, h);
+	if (!clip(&dest)) return;
+
+	float xr = w * .5f, yr = h * .5f, ar = (float)w / (float)h;
+	float cx = x1 + xr + .5f, cy = y1 + yr - .5f, rsq = yr * yr;
+
+	if (color_alpha == 255) {
+		bltfx.dwFillColor = color_surf;
+		float y = dest.top - cy;
+
+		if (solid) {
+			for (int t = dest.top; t < dest.bottom; ++y, ++t) {
+				float x = sqrt(rsq - y * y) * ar;
+				int xa = floor(cx - x), xb = floor(cx + x);
+				if (xb <= xa || xa >= viewport.right || xb <= viewport.left) continue;
+				Rect dr; dr.top = t; dr.bottom = t + 1;
+				dr.left = xa < viewport.left ? viewport.left : xa;
+				dr.right = xb > viewport.right ? viewport.right : xb;
+				surf->Blt(&dr, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+			}
+		}
+		else {
+			int p_xa, p_xb, t, hh = floor(cy);
+
+			p_xa = p_xb = cx;
+			t = dest.top; y = t - cy;
+			if (dest.top > y1) { --t; --y; }
+			for (; t <= hh; ++y, ++t) {
+				float x = sqrt(rsq - y * y) * ar;
+				int xa = floor(cx - x), xb = floor(cx + x);
+				Rect r1(xa, t, p_xa - xa, 1); if (r1.right <= r1.left) r1.right = r1.left + 1;
+				if (clip(&r1)) surf->Blt(&r1, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				Rect r2(p_xb, t, xb - p_xb, 1); if (r2.left >= r2.right) r2.left = r2.right - 1;
+				if (clip(&r2)) surf->Blt(&r2, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				p_xa = xa; p_xb = xb;
+			}
+
+			p_xa = p_xb = cx;
+			t = dest.bottom - 1; y = t - cy;
+			if (dest.bottom < y1 + h) { ++t; ++y; }
+			for (; t > hh; --y, --t) {
+				float x = sqrt(rsq - y * y) * ar;
+				int xa = floor(cx - x), xb = floor(cx + x);
+				Rect r1(xa, t, p_xa - xa, 1); if (r1.right <= r1.left) r1.right = r1.left + 1;
+				if (clip(&r1)) surf->Blt(&r1, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				Rect r2(p_xb, t, xb - p_xb, 1); if (r2.left >= r2.right) r2.left = r2.right - 1;
+				if (clip(&r2)) surf->Blt(&r2, 0, 0, DDBLT_WAIT | DDBLT_COLORFILL, &bltfx);
+				p_xa = xa; p_xb = xb;
+			}
+		}
 	}
-	damage( dest );
+	else {
+		lock();
+		for (int py = dest.top; py < dest.bottom; ++py) {
+			float y = py - cy;
+			float x_val = rsq - y * y;
+			if (x_val < 0) continue;
+			float x = sqrt(x_val) * ar;
+			int xa = floor(cx - x);
+			int xb = floor(cx + x);
+
+			if (solid) {
+				for (int px = xa; px <= xb; ++px) {
+					if (px >= dest.left && px < dest.right) {
+						setPixelAlpha(px, py, color_argb);
+					}
+				}
+			}
+			else {
+				if (xa >= dest.left && xa < dest.right) {
+					setPixelAlpha(xa, py, color_argb);
+				}
+				if (xb >= dest.left && xb < dest.right && xb != xa) {
+					setPixelAlpha(xb, py, color_argb);
+				}
+			}
+		}
+		unlock();
+	}
+	damage(dest);
 }
 
 void gxCanvas::blit( int x,int y,gxCanvas *src,int src_x,int src_y,int src_w,int src_h,bool solid ){
@@ -532,7 +1155,7 @@ unsigned gxCanvas::getMask()const{
 }
 
 unsigned gxCanvas::getColor()const{
-	return format.toARGB( color_surf );
+	return color_argb; // format.toARGB( color_surf );
 }
 
 unsigned gxCanvas::getClsColor()const{
@@ -692,6 +1315,19 @@ void gxCanvas::setPixel( int x,int y,unsigned argb ){
 	lock();
 	setPixelFast( x,y,argb );
 	unlock();
+}
+
+void gxCanvas::setPixelAlpha(int x, int y, unsigned argb) {
+	int alpha = color_a;
+
+	if (alpha == 255) {
+		format.setPixel(locked_surf + y * locked_pitch + x * format.getPitch(), argb);
+		return;
+	}
+
+	unsigned dest = format.getPixel(locked_surf + y * locked_pitch + x * format.getPitch());
+	unsigned blended = blendColors(dest, argb, alpha);
+	format.setPixel(locked_surf + y * locked_pitch + x * format.getPitch(), blended);
 }
 
 unsigned gxCanvas::getPixel( int x,int y )const{
