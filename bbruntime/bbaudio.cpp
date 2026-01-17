@@ -93,6 +93,11 @@ void bbChannelVolume( gxChannel *channel,float volume ){
 	channel->setVolume( volume );
 }
 
+float bbGetChannelVolume(gxChannel* channel) {
+	if (!channel) return 0.0f;
+	return channel->getVolume();
+}
+
 void bbChannelPan( gxChannel *channel,float pan ){
 	if( !channel ) return;
 	channel->setPan( pan );
@@ -134,6 +139,7 @@ void audio_link( void(*rtSym)(const char*,void*) ){
 	rtSym( "ResumeChannel%channel",bbResumeChannel );
 	rtSym( "ChannelPitch%channel%pitch",bbChannelPitch );
 	rtSym( "ChannelVolume%channel#volume",bbChannelVolume );
+	rtSym( "#GetChannelVolume%channel", bbGetChannelVolume);
 	rtSym( "ChannelPan%channel#pan",bbChannelPan );
 	rtSym( "%ChannelPlaying%channel",bbChannelPlaying );
 #ifdef PRO

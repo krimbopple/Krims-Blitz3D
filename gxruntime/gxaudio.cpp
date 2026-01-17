@@ -24,6 +24,9 @@ struct SoundChannel : public gxChannel{
 	void setVolume( float volume ){
 		FSOUND_SetVolume( channel,volume * 255.0f );
 	}
+	float getVolume() {
+		return FSOUND_GetVolume(channel) / 255.0f;
+	}
 	void setPan( float pan ){
 		FSOUND_SetPan( channel,(pan+1)*127.5f );
 	}
@@ -56,6 +59,9 @@ struct CDChannel : public gxChannel{
 	}
 	void setVolume( float volume ){
 		FSOUND_CD_SetVolume( 0,volume*255.0f );
+	}
+	float getVolume() {
+		return FSOUND_CD_GetVolume(0) / 255.0f;
 	}
 	void setPan( float pan ){
 	}
@@ -90,6 +96,9 @@ struct StreamChannel : public StaticChannel{
 	void setVolume( float volume ){
 		FSOUND_SetVolume( channel,volume * 255.0f );
 	}
+	float getVolume() {
+		return FSOUND_GetVolume(channel) / 255.0f;
+	}
 	void setPan( float pan ){
 		FSOUND_SetPan( channel,(pan+1)*127.5f );
 	}
@@ -123,6 +132,9 @@ struct MusicChannel : public StaticChannel{
 	}
 	void setVolume( float volume ){
 		FMUSIC_SetMasterVolume( module,volume*255.0f );
+	}
+	float getVolume() {
+		return FMUSIC_GetMasterVolume(module) / 255.0f;
 	}
 	void setPan( float pan ){
 	}
