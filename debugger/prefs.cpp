@@ -10,7 +10,8 @@ Prefs prefs;
 
 void Prefs::open(){
 	homeDir=getenv( "blitzpath" );
-	
+
+	AddFontResource( (homeDir+"/cfg/blitz.fon").c_str() );
 	setDefault();
 
 	bool prg_windowed;
@@ -108,6 +109,8 @@ void Prefs::close(){
 		out<<"file_recent\t"<<recentFiles[k]<<endl;
 	}
 	out<<dec;
+
+	RemoveFontResource( (homeDir+"cfg\\blitz.fon").c_str() );
 }
 
 void Prefs::setDefault(){
