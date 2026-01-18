@@ -222,14 +222,14 @@ struct Quat{
 		return sqrtf( w*w+v.x*v.x+v.y*v.y+v.z*v.z );
 	}
 	void normalize(){
-		float l = length();
-		if (l<EPSILON) return;
-		*this = *this / l;
+		//float l = length();
+		//if (l<EPSILON) return;
+		*this = *this / length();
 	}
 	Quat normalized()const{
-		float l = length();
-		if (l<EPSILON) return *this;
-		return *this / l;
+		//float l = length();
+		//if (l<EPSILON) return *this;
+		return *this / length();
 	}
 	Quat slerpTo( const Quat &q,float a )const{
 		Quat t=q;
