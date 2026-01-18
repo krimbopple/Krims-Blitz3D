@@ -1826,6 +1826,152 @@ void  bbEntityBox( Object *o,float x,float y,float z,float w,float h,float d ){
 	o->setCollisionBox( b );
 }
 
+Entity* bbCreateCapsule(int segs, float height, float radius, Entity* p) {
+	debugParent(p);
+	if (debug) {
+		if (segs < 3 || segs>50) RTEX("Illegal number of segments");
+		if (height <= 0) RTEX("Height must be positive");
+		if (radius <= 0) RTEX("Radius must be positive");
+	}
+
+	MeshModel* capsule = d_new MeshModel();
+	Surface* surf = capsule->createSurface(Brush());
+
+	float half_height = height * 0.5f;
+	float cylinder_height = height - 2.0f * radius;
+
+	if (cylinder_height < 0) {
+		cylinder_height = 0;
+	}
+
+	float half_cylinder = cylinder_height * 0.5f;
+
+	int ring_segments = segs;
+	int vertical_segments = segs / 2;
+
+	std::vector<Vector> vertices;
+	std::vector<Vector2> tex_coords;
+
+	for (int ring = 0; ring <= ring_segments; ring++) {
+		float theta = (float(ring) / ring_segments) * TWOPI;
+		float cos_theta = cosf(theta);
+		float sin_theta = sinf(theta);
+
+		// bottom verts
+		for (int vert = 0; vert <= vertical_segments; vert++) {
+			float phi = HALFPI * (float(vert) / vertical_segments);
+			float cos_phi = cosf(phi);
+			float sin_phi = sinf(phi);
+
+			float x = radius * cos_theta * sin_phi;
+			float y = -half_cylinder - radius * cos_phi;
+			float z = radius * sin_theta * sin_phi;
+
+			vertices.push_back(Vector(x, y, z));
+			tex_coords.push_back(Vector2(
+				float(ring) / ring_segments,
+				float(vert) / (vertical_segments * 2)
+			));
+		}
+
+		// cylinder verts
+		if (cylinder_height > 0) {
+			for (int vert = 1; vert < vertical_segments; vert++) {
+				float t = float(vert) / vertical_segments;
+				float y = -half_cylinder + cylinder_height * t;
+
+				float x = radius * cos_theta;
+				float z = radius * sin_theta;
+
+				vertices.push_back(Vector(x, y, z));
+				tex_coords.push_back(Vector2(
+					float(ring) / ring_segments,
+					0.25f + 0.5f * t
+				));
+			}
+		}
+
+		// top verts
+		for (int vert = 0; vert <= vertical_segments; vert++) {
+			float phi = HALFPI * (1.0f - float(vert) / vertical_segments);
+			float cos_phi = cosf(phi);
+			float sin_phi = sinf(phi);
+
+			float x = radius * cos_theta * sin_phi;
+			float y = half_cylinder + radius * cos_phi;
+			float z = radius * sin_theta * sin_phi;
+
+			vertices.push_back(Vector(x, y, z));
+			tex_coords.push_back(Vector2(
+				float(ring) / ring_segments,
+				0.5f + float(vert) / (vertical_segments * 2)
+			));
+		}
+	}
+
+	for (size_t i = 0; i < vertices.size(); i++) {
+		Surface::Vertex v;
+		v.coords = vertices[i];
+		v.color = 0xffffffff;
+		v.tex_coords[0][0] = tex_coords[i].x;
+		v.tex_coords[0][1] = tex_coords[i].y;
+		v.normal = vertices[i].normalized();
+
+		if (i >= (ring_segments + 1) * (vertical_segments + 1) &&
+			i < vertices.size() - (ring_segments + 1) * (vertical_segments + 1)) {
+			int local_idx = i - (ring_segments + 1) * (vertical_segments + 1);
+			int ring_idx = local_idx % ((vertical_segments - 1) + 2 * (vertical_segments + 1));
+
+			if (ring_idx >= (vertical_segments - 1)) {
+			}
+			else {
+				float theta = (float(ring_idx / (vertical_segments - 1)) / ring_segments) * TWOPI;
+				v.normal = Vector(cosf(theta), 0, sinf(theta));
+			}
+		}
+
+		surf->addVertex(v);
+	}
+
+	int vertices_per_slice = (vertical_segments + 1) + (cylinder_height > 0 ? (vertical_segments - 1) : 0) + (vertical_segments + 1);
+
+	for (int ring = 0; ring < ring_segments; ring++) {
+		for (int slice = 0; slice < vertices_per_slice - 1; slice++) {
+			int v0 = ring * vertices_per_slice + slice;
+			int v1 = (ring + 1) * vertices_per_slice + slice;
+			int v2 = ring * vertices_per_slice + slice + 1;
+			int v3 = (ring + 1) * vertices_per_slice + slice + 1;
+
+			Surface::Triangle t1;
+			t1.verts[0] = v0;
+			t1.verts[1] = v1;
+			t1.verts[2] = v2;
+			surf->addTriangle(t1);
+
+			Surface::Triangle t2;
+			t2.verts[0] = v1;
+			t2.verts[1] = v3;
+			t2.verts[2] = v2;
+			surf->addTriangle(t2);
+		}
+	}
+
+	capsule->updateNormals();
+	capsule->getObject()->setCollisionRadii(Vector(radius, half_height + radius, radius));
+	capsule->getObject()->setCapsule(
+		Vector(0, -half_height, 0),  // bottom, point
+		Vector(0, half_height, 0),   // top point
+		radius
+	);
+
+	return insertEntity(capsule, p);
+}
+
+void bbEntityCapsule(Object* o, float x1, float y1, float z1, float x2, float y2, float z2, float radius) {
+	debugObject(o);
+	o->setCapsule(Vector(x1, y1, z1), Vector(x2, y2, z2), radius);
+}
+
 Object *  bbEntityCollided( Object *o,int type ){
 	debugObject(o);
 	Object::Collisions::const_iterator it;
@@ -2294,6 +2440,8 @@ void blitz3d_link( void (*rtSym)( const char *sym,void *pc ) ){
 	rtSym( "%GetEntityType%entity",bbGetEntityType );
 	rtSym( "EntityRadius%entity#x_radius#y_radius=0",bbEntityRadius );
 	rtSym( "EntityBox%entity#x#y#z#width#height#depth",bbEntityBox );
+	rtSym("EntityCapsule%entity#x1#y1#z1#x2#y2#z2#radius", bbEntityCapsule);
+	rtSym("%CreateCapsule%segments=8#height=2#radius=1%parent=0", bbCreateCapsule);
 	rtSym( "#EntityDistance%source_entity%destination_entity",bbEntityDistance );
 	rtSym("#EntityDistanceSquared%source_entity%destination_entity", bbEntityDistanceSquared);
 	rtSym( "%EntityCollided%entity%type",bbEntityCollided );

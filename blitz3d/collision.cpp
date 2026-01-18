@@ -359,3 +359,47 @@ bool Collision::boxCollide( const Line &line,float radius,const Box &box ){
 	}
 	return hit;
 }
+
+bool Collision::capsuleCollide(const Line& line, float radius, const Vector& a, const Vector& b, float capsule_radius) {
+	float total_radius = radius + capsule_radius;
+
+	Vector ba = b - a;
+	Vector oa = line.o - a;
+	float baba = ba.dot(ba);
+	float bard = ba.dot(line.d);
+	float baoa = ba.dot(oa);
+	float rdoa = line.d.dot(oa);
+	float oaoa = oa.dot(oa);
+	float a_coef = baba - bard * bard;
+	float b_coef = baba * rdoa - baoa * bard;
+	float c_coef = baba * oaoa - baoa * baoa - total_radius * total_radius * baba;
+
+	float h = b_coef * b_coef - a_coef * c_coef;
+	if (h < 0.0) return false;
+
+	float t = (-b_coef - sqrtf(h)) / a_coef;
+
+	if (t < 0.0 || t >= time) return false;
+
+	float y = baoa + t * bard;
+
+	float y_clamped;
+	if (y <= 0.0) {
+		y_clamped = 0.0;
+	}
+	else if (y >= baba) {
+		y_clamped = 1.0;
+	}
+	else {
+		y_clamped = y / baba;
+	}
+
+	Vector closest_point = a + ba * y_clamped;
+
+	Vector delta = line.o + line.d * t - closest_point;
+	float dist_sq = delta.dot(delta);
+
+	if (dist_sq > total_radius * total_radius + EPSILON) return false;
+
+	return update(line, t, delta.normalized());
+}

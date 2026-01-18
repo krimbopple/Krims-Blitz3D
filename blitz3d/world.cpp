@@ -84,14 +84,26 @@ bool World::hitTest( const Line &line,float radius,Object *obj,const Transform &
 	case COLLISION_METHOD_SPHERE:
 		return curr_coll->sphereCollide( line,radius,tf.v,obj->getCollisionRadii().x );
 	case COLLISION_METHOD_POLYGON:
-		return obj->collide( line,radius,curr_coll,tf );
-	case COLLISION_METHOD_BOX:
-		Transform t=tf;
-		t.m.i.normalize();t.m.j.normalize();t.m.k.normalize();
-		if( curr_coll->boxCollide( ~t*line,radius,obj->getCollisionBox() ) ){
-			curr_coll->normal=t.m*curr_coll->normal;
+		return obj->collide(line, radius, curr_coll, tf);
+	case COLLISION_METHOD_BOX: {
+		Transform t = tf;
+		t.m.i.normalize(); t.m.j.normalize(); t.m.k.normalize();
+		if (curr_coll->boxCollide(~t * line, radius, obj->getCollisionBox())) {
+			curr_coll->normal = t.m * curr_coll->normal;
 			return true;
 		}
+		return false;
+	}
+	case COLLISION_METHOD_CAPSULE: {
+		Vector local_a = obj->getCapsulePointA();
+		Vector local_b = obj->getCapsulePointB();
+		float capsule_radius = obj->getCapsuleRadius();
+
+		Vector world_a = tf * local_a;
+		Vector world_b = tf * local_b;
+
+		return curr_coll->capsuleCollide(line, radius, world_a, world_b, capsule_radius);
+	}
 	}
 	return false;
 }

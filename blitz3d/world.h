@@ -13,10 +13,11 @@
 class World{
 public:
 	//collision methods
-	enum{
-		COLLISION_METHOD_SPHERE=1,
-		COLLISION_METHOD_POLYGON=2,
-		COLLISION_METHOD_BOX=3
+	enum {
+		COLLISION_METHOD_SPHERE = 1,
+		COLLISION_METHOD_POLYGON = 2,
+		COLLISION_METHOD_BOX = 3,
+		COLLISION_METHOD_CAPSULE = 4
 	};
 
 	//collision actions

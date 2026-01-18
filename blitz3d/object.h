@@ -16,6 +16,12 @@ struct ObjCollision{
 	Collision collision;
 };
 
+struct Vector2 {
+	float x, y;
+	Vector2() : x(0), y(0) {}
+	Vector2(float x, float y) : x(x), y(y) {}
+};
+
 class Object : public Entity{
 public:
 	typedef std::vector<const ObjCollision*> Collisions;
@@ -36,6 +42,16 @@ public:
 	void setCollisionType( int type );
 	void setCollisionRadii( const Vector &radii );
 	void setCollisionBox( const Box &box );
+	void setCapsule(const Vector& a, const Vector& b, float radius) {
+		capsule_a = a;
+		capsule_b = b;
+		capsule_radius = radius;
+	}
+
+	Vector getCapsulePointA() const { return capsule_a; }
+	Vector getCapsulePointB() const { return capsule_b; }
+	float getCapsuleRadius() const { return capsule_radius; }
+
 	void setOrder( int n ){ order=n; }
 	void setPickGeometry( int n ){ pick_geom=n; }
 	void setObscurer( bool t ){ obscurer=t; }
@@ -86,6 +102,9 @@ private:
 	Vector capt_pos,capt_scl;
 	Quat capt_rot;
 	mutable Object *last_copy;
+
+	Vector capsule_a, capsule_b;
+	float capsule_radius;
 
 	Transform prev_tform;
 	Transform captured_tform,tween_tform;

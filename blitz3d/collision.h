@@ -22,6 +22,8 @@ struct Collision{
 	bool triangleCollide( const Line &src_line,float src_radius,const Vector &v0,const Vector &v1,const Vector &v2 );
 
 	bool boxCollide( const Line &src_line,float src_radius,const Box &box );
+
+	bool capsuleCollide(const Line& line, float radius, const Vector& a, const Vector& b, float capsule_radius);
 };
 
 #endif
