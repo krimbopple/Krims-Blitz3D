@@ -10,6 +10,7 @@ struct MeshUtil{
 	static MeshModel *createSphere( const Brush &b,int segs );
 	static MeshModel *createCylinder( const Brush &b,int segs,bool solid );
 	static MeshModel *createCone( const Brush &b,int segs,bool solid );
+	static MeshModel* createCapsule(const Brush& b, int segs, float height, float radius);
 
 	static void lightMesh( MeshModel *m,const Vector &pos,const Vector &rgb,float range );
 
