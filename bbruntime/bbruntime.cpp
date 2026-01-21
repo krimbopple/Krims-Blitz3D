@@ -2,10 +2,11 @@
 #include "std.h"
 #include "bbsys.h"
 #include "bbruntime.h"
+#include <sstream>
 
 std::string* ErrorMessagePool::memoryAccessViolation = 0;
 int ErrorMessagePool::size = 0;
-
+bool ErrorMessagePool::hasMacro = false;
 
 void  bbEnd(){
 	RTEX( 0 );
@@ -28,17 +29,29 @@ void  bbRuntimeError( BBStr *str ){
 	RTEX( err );
 }
 
-void bbInitErrorMsgs(int number) {
+void bbInitErrorMsgs(int number, bool hasMacro) {
 	delete[] ErrorMessagePool::memoryAccessViolation;
 	ErrorMessagePool::memoryAccessViolation = new std::string[number];
 	ErrorMessagePool::size = number;
+	ErrorMessagePool::hasMacro = hasMacro;
 }
 
 void bbSetErrorMsg(int pos, BBStr* str) {
 	if (ErrorMessagePool::memoryAccessViolation != 0 && pos < ErrorMessagePool::size) {
-		ErrorMessagePool::memoryAccessViolation[pos] = *str;
+		ErrorMessagePool::memoryAccessViolation[pos] = str->c_str();
 	}
 	delete str;
+}
+
+BBStr* bbGetException() {
+	std::stringstream ss;
+	ss << errorfunc << ": " << errorlog;
+	return new BBStr(ss.str());
+}
+
+void bbClearException() {
+	errorfunc = "";
+	errorlog = "";
 }
 
 int   bbExecFile( BBStr *f ){
@@ -192,6 +205,8 @@ void bbruntime_link( void (*rtSym)( const char *sym,void *pc ) ){
 	rtSym( "RuntimeError$message",bbRuntimeError );
 	rtSym("InitErrorMsgs%number", bbInitErrorMsgs);
 	rtSym("SetErrorMsg%pos$message", bbSetErrorMsg);
+	rtSym("$GetException", bbGetException);
+	rtSym("ClearException", bbClearException);
 	rtSym( "ExecFile$command",bbExecFile );
 	rtSym( "Delay%millisecs",bbDelay );
 	rtSym( "%MilliSecs",bbMilliSecs );
@@ -286,22 +301,96 @@ bool bbruntime_destroy(){
 	return true;
 }
 
-const char *bbruntime_run( gxRuntime *rt,void (*pc)(),bool dbg ){
-	debug=dbg;
-	gx_runtime=rt;
+inline static const char* CharToChar(const char* ch) {
+	return ch;
+}
 
-	if( !bbruntime_create() ) return "Unable to start program";
-	const char *t=0;
-	try{
-		if( !gx_runtime->idle() ) RTEX( 0 );
+inline static const char* WcharToChar(const wchar_t* wch) {
+	static char buffer[4096];
+	wcstombs(buffer, wch, sizeof(buffer));
+	buffer[sizeof(buffer) - 1] = '\0';
+	return buffer;
+}
+
+inline const char* getCharPtr(std::string str) {
+	char* cha = new char[str.size() + 1];
+	memcpy(cha, str.c_str(), str.size() + 1);
+	const char* p = cha;
+	return p;
+}
+
+inline static unsigned long ExceptionFilter(PEXCEPTION_POINTERS ex, PEXCEPTION_POINTERS& pex) {
+	if (
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_INT_DIVIDE_BY_ZERO ||
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION ||
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW ||
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_INT_OVERFLOW ||
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_FLT_OVERFLOW ||
+		ex->ExceptionRecord->ExceptionCode == EXCEPTION_FLT_DIVIDE_BY_ZERO ||
+		ex->ExceptionRecord->ExceptionCode == 0xE0000001
+		) {
+		pex = ex;
+		return EXCEPTION_EXECUTE_HANDLER;
+	}
+	else if (ex->ExceptionRecord->ExceptionCode == 0xE0000002) {
+		errorfunc = getCharPtr(reinterpret_cast<const char*>(ex->ExceptionRecord->ExceptionInformation[0]));
+		errorlog = getCharPtr(reinterpret_cast<const char*>(ex->ExceptionRecord->ExceptionInformation[1]));
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+inline static void program(void (*pc)()) {
+	PEXCEPTION_POINTERS ex = NULL;
+	__try {
+		if (!gx_runtime->idle()) RTEX(0);
 		pc();
-		gx_runtime->debugInfo( "Program has ended" );
-	}catch( bbEx x ){
-		t=x.err;
-	} catch (exception e) {
+		gx_runtime->debugInfo("Program ended");
+	}
+	__except (ExceptionFilter(GetExceptionInformation(), ex)) {
+		switch (ex->ExceptionRecord->ExceptionCode) {
+		case EXCEPTION_INT_DIVIDE_BY_ZERO:
+			bbruntime_panic("Integer divide by zero");
+			break;
+		case EXCEPTION_ILLEGAL_INSTRUCTION:
+			bbruntime_panic("Illegal instruction");
+			break;
+		case EXCEPTION_STACK_OVERFLOW:
+			bbruntime_panic("Stack overflow");
+			break;
+		case EXCEPTION_INT_OVERFLOW:
+			bbruntime_panic("Integer overflow");
+			break;
+		case EXCEPTION_FLT_OVERFLOW:
+			bbruntime_panic("Floating point overflow");
+			break;
+		case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+			bbruntime_panic("Floating point divide by zero");
+			break;
+		case 0xE0000001:
+			bbruntime_panic(reinterpret_cast<const char*>(ex->ExceptionRecord->ExceptionInformation[0]));
+			break;
+		}
+	}
+}
+
+const char* bbruntime_run(gxRuntime* rt, void (*pc)(), bool dbg) {
+	debug = dbg;
+	gx_runtime = rt;
+
+	if (!bbruntime_create()) return "Unable to start program";
+	const char* t = 0;
+	try {
+		program(pc);
+	}
+	catch (bbEx x) {
+		t = x.err;
+	}
+	catch (std::exception e) {
 		t = e.what();
-	} catch (...) {
-		t = "Unknown/non-standard exception thrown";
+	}
+	catch (...) {
+		t = "Unknown exception thrown";
 	}
 	bbruntime_destroy();
 	return t;

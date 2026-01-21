@@ -19,7 +19,9 @@
 #include <iostream>
 #include <fstream>
 
-#include <math.h>
+#include <cmath>
+
+#define ErrorLog(function, log) if (debug) { RTEX(log) } else { errorfunc = function; errorlog = log; }
 
 using namespace std;
 

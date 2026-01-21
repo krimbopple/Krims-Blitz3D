@@ -57,28 +57,50 @@ void VarDeclNode::proto( DeclSeq *d,Environ *e ){
 	Type *ty=tagType( tag,e );
 	if( !ty ) ty=Type::int_type;
 	ConstType *defType=0;
+	ConstType* initConst = 0;
 
-	if( expr ){
-		expr=expr->semant( e );
-		expr=expr->castTo( ty,e );
-		if( constant || (kind&DECL_PARAM) ){
-			ConstNode *c=expr->constNode();
-			if( !c ) ex( "Expression must be constant" );
-			if( ty==Type::int_type ) ty=d_new ConstType( c->intValue() );
-			else if( ty==Type::float_type ) ty=d_new ConstType( c->floatValue() );
+	if (expr) {
+		expr = expr->semant(e);
+		expr = expr->castTo(ty, e);
+		if (kind & DECL_FIELD) {
+			ConstNode* c = expr->constNode();
+			if (!c) ex("Field initializer must be constant");
+
+			if (ty == Type::int_type) initConst = d_new ConstType(c->intValue());
+			else if (ty == Type::float_type) initConst = d_new ConstType(c->floatValue());
+			else if( ty==Type::string_type ) initConst = d_new ConstType( c->stringValue() );
+			else if (ty->structType()) initConst = d_new ConstType();
+
+			e->types.push_back(initConst);
+			delete expr; expr = 0;
+		}
+		if (constant || (kind & DECL_PARAM)) {
+			ConstNode* c = expr->constNode();
+			if (!c) ex("Expression must be constant");
+			if (ty == Type::int_type) ty = d_new ConstType(c->intValue());
+			else if (ty == Type::float_type) ty = d_new ConstType(c->floatValue());
 			else if (ty->structType()) ty = d_new ConstType();
-			else ty=d_new ConstType( c->stringValue() );
-			e->types.push_back( ty );
-			delete expr;expr=0;
+			else ty = d_new ConstType(c->stringValue());
+			e->types.push_back(ty);
+			delete expr; expr = 0;
 		}
-		if( kind&DECL_PARAM ){
-			defType=ty->constType();ty=defType->valueType;
+		if (kind & DECL_PARAM) {
+			defType = ty->constType(); ty = defType->valueType;
 		}
-	}else if( constant ) ex( "Constants must be initialized" );
+	}
+	else if (constant) ex("Constants must be initialized");
 
-	Decl *decl=d->insertDecl( ident,ty,kind,defType );
-	if( !decl ) ex( "Duplicate variable name" );
-	if( expr ) sem_var=d_new DeclVarNode( decl );
+	Decl* decl;
+	if (kind & DECL_FIELD) {
+		decl = d->insertDecl(ident, ty, kind, initConst);
+		sem_var = 0;
+	}
+	else {
+		decl = d->insertDecl(ident, ty, kind, defType);
+		if (expr) sem_var = d_new DeclVarNode(decl);
+	}
+
+	if (!decl) ex("Duplicate variable name");
 }
 
 void VarDeclNode::semant( Environ *e ){
@@ -203,6 +225,39 @@ void StructDeclNode::translate( Codegen *g ){
 		g->p_data( t );
 	}
 
+	// store initial values for each field, really..?
+	for (k = 0; k < sem_type->fields->size(); ++k) {
+		Decl* field = sem_type->fields->decls[k];
+
+		if (field->defType) {
+			ConstType* constType = field->defType;
+
+			if (field->type == Type::int_type) {
+				g->i_data(constType->intValue);
+			}
+			else if (field->type == Type::float_type) {
+				float val = constType->floatValue;
+				g->i_data(*(int*)&val);
+			}
+			else if (field->type == Type::string_type) {
+				string str_val = constType->stringValue;
+				string label = genLabel();
+				g->s_data(str_val, label);
+				g->p_data(label);
+			}
+			else if (field->type->structType()) {
+				g->p_data(0);
+			}
+			else {
+				g->p_data(0);
+			}
+		}
+		else {
+			if (field->type == Type::int_type) g->i_data(0);
+			else if (field->type == Type::float_type) g->i_data(0);
+			else g->p_data(0);
+		}
+	}
 }
 
 //////////////////////

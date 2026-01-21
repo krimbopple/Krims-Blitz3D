@@ -250,13 +250,32 @@ BBObj *_bbObjNew(BBObjType *type) {
 	o->type=type;
 	o->ref_cnt=1;
 	o->fields=(BBField*)(o+1);
-	for(int k=0;k<type->fieldCnt;++k) {
-		switch(type->fieldTypes[k]->type) {
+
+	BBField* initialValues = (BBField*)(type->fieldTypes + type->fieldCnt);
+
+	for (int k = 0; k < type->fieldCnt; ++k) {
+		switch (type->fieldTypes[k]->type) {
 		case BBTYPE_VEC:
-			o->fields[k].VEC=_bbVecAlloc((BBVecType*)type->fieldTypes[k]);
+			o->fields[k].VEC = _bbVecAlloc((BBVecType*)type->fieldTypes[k]);
+			break;
+		case BBTYPE_STR:
+			// TODO: get this shit working
+			o->fields[k].STR = 0;
+			break;
+
+			//if (initialValues[k].STR) {
+			//	o->fields[k].STR = d_new BBStr(initialValues[k].CSTR);
+			//}
+			//else {
+			//	o->fields[k].STR = 0;
+			//}
+			//break;
+		case BBTYPE_OBJ:
+			o->fields[k].OBJ = initialValues[k].OBJ;
+			if (o->fields[k].OBJ) ++o->fields[k].OBJ->ref_cnt;
 			break;
 		default:
-			o->fields[k].INT=0;
+			o->fields[k] = initialValues[k];
 		}
 	}
 	insertObj(o,&type->used);

@@ -2,6 +2,7 @@
 #include "std.h"
 #include "decl.h"
 #include "type.h"
+#include "nodes.h" 
 
 Decl::~Decl(){
 }
@@ -27,9 +28,9 @@ Decl *DeclSeq::findDecl( const string &s ){
 	return 0;
 }
 
-Decl *DeclSeq::insertDecl( const string &s,Type *t,int kind,ConstType *d ){
-	if( findDecl( s ) ) return 0;
-	decls.push_back( d_new Decl( s,t,kind,d ) );
+Decl* DeclSeq::insertDecl(const string& s, Type* t, int kind, ConstType* d) {
+	if (findDecl(s)) return 0;
+	decls.push_back(d_new Decl(s, t, kind, d));
 	return decls.back();
 }
 

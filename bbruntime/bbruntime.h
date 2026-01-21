@@ -22,6 +22,7 @@ class ErrorMessagePool {
 	public:
 		static std::string* memoryAccessViolation;
 		static int size;
+		static bool hasMacro;
 };
 
 #endif
