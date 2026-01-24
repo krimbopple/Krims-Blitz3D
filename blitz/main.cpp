@@ -137,13 +137,57 @@ static void demoError(){
 	exit(0);
 }
 
+static bool setLargeAddressAware(const std::string& exePath) {
+	std::fstream file(exePath, std::ios::in | std::ios::out | std::ios::binary);
+	if (!file.is_open()) return false;
+
+	// DOS
+	IMAGE_DOS_HEADER dosHeader;
+	file.read(reinterpret_cast<char*>(&dosHeader), sizeof(dosHeader));
+	if (dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
+		file.close();
+		return false;
+	}
+
+	// PE
+	file.seekg(dosHeader.e_lfanew, std::ios::beg);
+	DWORD peSig;
+	file.read(reinterpret_cast<char*>(&peSig), sizeof(peSig));
+	if (peSig != IMAGE_NT_SIGNATURE) {
+		file.close();
+		return false;
+	}
+
+	IMAGE_FILE_HEADER fileHeader;
+	file.read(reinterpret_cast<char*>(&fileHeader), sizeof(fileHeader));
+
+	if (fileHeader.Characteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) {
+		file.close();
+		return true;
+	}
+
+	// set LARGEADDRESSAWARE (0x20)
+	fileHeader.Characteristics |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
+
+	file.seekp(dosHeader.e_lfanew + sizeof(DWORD), std::ios::beg);
+	file.write(reinterpret_cast<char*>(&fileHeader), sizeof(fileHeader));
+
+	if (file.fail() || file.bad()) {
+		file.close();
+		return false;
+	}
+
+	file.close();
+	return true;
+}
+
 int _cdecl main( int argc,char *argv[] ){
 
 	string in_file,out_file,args;
 
 	bool debug=false,quiet=false,veryquiet=false,compileonly=false;
 	bool dumpkeys=false,dumphelp=false,showhelp=false,dumpasm=false;
-	bool versinfo=false; bool strictMode = true;
+	bool versinfo=false; bool strictMode = true; bool largeAddressAware = true;
 
 	for( int k=1;k<argc;++k ){
 
@@ -325,7 +369,20 @@ int _cdecl main( int argc,char *argv[] ){
 		if( !module->createExe( out_file.c_str(),(home+"/bin/runtime.dll").c_str() ) ){
 			err( "Error creating executable" );
 		}
-	}else if( !compileonly ){
+		if (!veryquiet)
+			cout << "Setting LARGEADDRESSAWARE flag..." << endl;
+
+		if (setLargeAddressAware(out_file)) {
+			if (!veryquiet)
+				cout << "Executable is now LARGEADDRESSAWARE!" << endl;
+		}
+		else {
+			if (!veryquiet)
+				cout << "Could not set LARGEADDRESSAWARE flag!" << endl;
+		}
+
+	}
+	else if (!compileonly){
 		void *entry=module->link( runtimeModule );
 		if( !entry ) return 0;
 
@@ -341,6 +398,8 @@ int _cdecl main( int argc,char *argv[] ){
 			}
 			if( !debugger ) err( "Error launching debugger" );
 		}
+
+		LoadLibrary((home + "/bin/d3dim700.dll").c_str());
 
 		if( !veryquiet ) cout<<"Executing..."<<endl;
 
