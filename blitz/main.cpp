@@ -187,7 +187,7 @@ int _cdecl main( int argc,char *argv[] ){
 
 	bool debug=false,quiet=false,veryquiet=false,compileonly=false;
 	bool dumpkeys=false,dumphelp=false,showhelp=false,dumpasm=false;
-	bool versinfo=false; bool strictMode = true; bool largeAddressAware = true;
+	bool versinfo=false; bool strictMode = false; bool largeAddressAware = true;
 
 	for( int k=1;k<argc;++k ){
 
