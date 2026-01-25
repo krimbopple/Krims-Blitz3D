@@ -293,7 +293,7 @@ int _cdecl main( int argc,char *argv[] ){
 			cout.flush();
 		}
 		Toker toker( in );
-		Parser parser(toker, strictMode);
+		Parser parser(toker);
 		prog=parser.parse(in_file, debug);
 
 		//semant

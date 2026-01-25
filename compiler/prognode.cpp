@@ -11,7 +11,7 @@ Environ *ProgNode::semant( Environ *e ){
 
 	StmtSeqNode::reset( stmts->file,file_lab );
 
-	a_ptr<Environ> env(d_new Environ(genLabel(), Type::int_type, 0, e, strictMode));
+	a_ptr<Environ> env( d_new Environ( genLabel(),Type::int_type,0,e ) );
 
 	structs->proto(env->typeDecls, env);
 	consts->proto(env->decls, env);

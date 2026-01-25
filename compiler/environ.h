@@ -15,7 +15,6 @@
 class Environ{
 public:
 	int level;
-	bool strictMode; // for auto decl 
 	DeclSeq *decls;
 	DeclSeq *funcDecls;
 	DeclSeq *typeDecls;
@@ -28,7 +27,7 @@ public:
 	string funcLabel,breakLabel;
 	list<Environ*> children;		//for delete!
 
-	Environ( const string &f,Type *r,int l,Environ *gs,bool strict=false );
+	Environ( const string &f,Type *r,int l,Environ *gs );
 	~Environ();
 
 	Decl *findDecl( const string &s );

@@ -55,19 +55,14 @@ void IdentVarNode::semant( Environ *e ){
 		if( !(sem_decl->kind&(DECL_GLOBAL|DECL_LOCAL|DECL_PARAM)) ){
 			ex( "Identifier '"+sem_decl->name+"' may not be used like this" );
 		}
-		Type* ty = sem_decl->type;
-		if (ty->constType()) ty = ty->constType()->valueType;
-		if (tag.size() && t != ty) ex("Variable type mismatch");
+		Type *ty=sem_decl->type;
+		if( ty->constType() ) ty=ty->constType()->valueType;
+		if( tag.size() && t!=ty ) ex( "Variable type mismatch" );
+	}else{
+		//ugly auto decl!
+		sem_decl=e->decls->insertDecl( ident,t,DECL_LOCAL );
 	}
-	else {
-		if (e->strictMode) {
-			ex("Variable '" + ident + "' not declared");
-		}
-		else {
-			sem_decl = e->decls->insertDecl(ident, t, DECL_LOCAL);
-		}
-	}
-	sem_type = sem_decl->type;
+	sem_type=sem_decl->type;
 }
 
 /////////////////

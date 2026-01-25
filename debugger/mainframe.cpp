@@ -6,6 +6,7 @@
 #include "prefs.h"
 
 #include "../gxruntime/gxutf8.h"
+#include <fstream>
 
 #define WM_IDLEUPDATECMDUI  0x0363  // wParam == bDisableIfNoHandler
 
@@ -213,11 +214,27 @@ void MainFrame::debugMsg( const char *msg,bool serious ){
 	}
 }
 
-void MainFrame::debugLog( const char *msg ){
-	debug_log.ReplaceSel( msg );
-	debug_log.ReplaceSel( "\n" );
-	tabber.setCurrent( 0 );
-	setState( state );
+void MainFrame::debugLog(const char* msg) {
+	debug_log.ReplaceSel(msg);
+	debug_log.ReplaceSel("\n");
+	tabber.setCurrent(0);
+	setState(state);
+
+	static bool firstLog = true;
+	static std::ofstream logFile;
+
+	if (firstLog) {
+		logFile.open("debug_log.txt", std::ios::out | std::ios::app);
+		if (logFile.is_open()) {
+			logFile << "- Debug Started -" << std::endl;
+			firstLog = false;
+		}
+	}
+
+	if (logFile.is_open()) {
+		logFile << msg << std::endl;
+		logFile.flush();
+	}
 }
 
 void MainFrame::debugSys( void *m ){
