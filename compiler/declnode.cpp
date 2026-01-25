@@ -27,44 +27,14 @@ void DeclSeqNode::semant( Environ *e ){
 	}
 }
 
-void DeclSeqNode::translate(Codegen* g) {
-	cout.flush();
-
-	if (decls.empty()) {
-		//cout << "DEBUG: no declarations to translate" << endl;
-		//cout.flush();
-		return;
-	}
-
-	for (int k = 0; k < decls.size(); ++k) {
-		//cout << "DEBUG: translating declaration " << k << " of " << decls.size() << endl;
-		//cout << "DEBUG: declaration pointer: " << decls[k] << endl;
-		//cout.flush();
-
-		if (!decls[k]) {
-			//cout << "DEBUG: declaration " << k << " is NULL!" << endl;
-			//cout.flush();
-			continue;
+void DeclSeqNode::translate( Codegen *g ){
+	for( int k=0;k<decls.size();++k ){
+		try{ decls[k]->translate( g ); }
+		catch( Ex &x ){
+			if( x.pos<0 ) x.pos=decls[k]->pos;
+			if(!x.file.size() ) x.file=decls[k]->file;
+			throw; 
 		}
-
-		try {
-			decls[k]->translate(g);
-		}
-		catch (Ex& x) {
-			//cout << "DEBUG: caught exception in DeclSeqNode::translate: " << x.ex << endl;
-			//cout.flush();
-			if (x.pos < 0) x.pos = decls[k]->pos;
-			if (!x.file.size()) x.file = decls[k]->file;
-			throw;
-		}
-		catch (...) {
-			//cout << "DEBUG: caught unknown exception in DeclSeqNode::translate!" << endl;
-			//cout.flush();
-			throw Ex("Unknown exception during translation");
-		}
-
-		//cout << "DEBUG: finnished declaration " << k << endl;
-		cout.flush();
 	}
 }
 
@@ -98,15 +68,8 @@ void VarDeclNode::proto( DeclSeq *d,Environ *e ){
 
 			if (ty == Type::int_type) initConst = d_new ConstType(c->intValue());
 			else if (ty == Type::float_type) initConst = d_new ConstType(c->floatValue());
-			else if (ty == Type::string_type) initConst = d_new ConstType(c->stringValue());
-			else if (ty->structType()) {
-				if (c->intValue() == 0) {
-					initConst = d_new ConstType();
-				}
-				else {
-					ex("Struct field initializers must be null or another struct object");
-				}
-			}
+			else if( ty==Type::string_type ) initConst = d_new ConstType( c->stringValue() );
+			else if (ty->structType()) initConst = d_new ConstType();
 
 			e->types.push_back(initConst);
 			delete expr; expr = 0;
@@ -265,67 +228,34 @@ void StructDeclNode::translate( Codegen *g ){
 	// store initial values for each field, really..?
 	for (k = 0; k < sem_type->fields->size(); ++k) {
 		Decl* field = sem_type->fields->decls[k];
-		Type* type = field->type;
 
-		// cout << "DEBUG: field " << k << ": " << field->name
-		// 	<< ", type class: " << (type ? typeid(*type).name() : "NULL")
-		// 	<< ", type name: " << (type ? type->name() : "NULL") << endl;
-		// cout.flush();
+		if (field->defType) {
+			ConstType* constType = field->defType;
 
-		if (!type) {
-			ex("Field '" + field->name + "' has null type");
-		}
-
-		string t;
-		if (type == Type::int_type) {
-			t = "__bbIntType";
-			// cout << "DEBUG: int type" << endl;
-		}
-		else if (type == Type::float_type) {
-			t = "__bbFltType";
-			// cout << "DEBUG: float type" << endl;
-		}
-		else if (type == Type::string_type) {
-			t = "__bbStrType";
-			// cout << "DEBUG: string type" << endl;
-		}
-		else if (StructType* s = type->structType()) {
-			// cout << "DEBUG: struct type: " << s->ident << endl;
-			t = "_t" + s->ident;
-
-			bool found = false;
-			for (int i = 0; i < k; i++) {
-				if (sem_type->fields->decls[i]->type->structType() &&
-					sem_type->fields->decls[i]->type->structType()->ident == s->ident) {
-					found = true;
-					break;
-				}
+			if (field->type == Type::int_type) {
+				g->i_data(constType->intValue);
 			}
-			if (!found) {
-				// cout << "DEBUG: first reference to struct " << s->ident << " in this struct" << endl;
+			else if (field->type == Type::float_type) {
+				float val = constType->floatValue;
+				g->i_data(*(int*)&val);
 			}
-		}
-		else if (VectorType* v = type->vectorType()) {
-			// cout << "DEBUG: vector type: " << v->label << endl;
-			t = v->label;
+			else if (field->type == Type::string_type) {
+				string str_val = constType->stringValue;
+				string label = genLabel();
+				g->s_data(str_val, label);
+				g->p_data(label);
+			}
+			else if (field->type->structType()) {
+				g->p_data(0);
+			}
+			else {
+				g->p_data(0);
+			}
 		}
 		else {
-			// cout << "DEBUG: UNKNOWN TYPE!" << endl;
-			ex("Unknown type for field '" + field->name + "'");
-		}
-
-		// cout << "DEBUG: emitting type reference: " << t << endl;
-		// cout.flush();
-
-		try {
-			g->p_data(t);
-			// cout << "DEBUG: successfully emitted" << endl;
-			// cout.flush();
-		}
-		catch (...) {
-			// cout << "DEBUG: EXCEPTION in g->p_data()!" << endl;
-			// cout.flush();
-			throw;
+			if (field->type == Type::int_type) g->i_data(0);
+			else if (field->type == Type::float_type) g->i_data(0);
+			else g->p_data(0);
 		}
 	}
 }
