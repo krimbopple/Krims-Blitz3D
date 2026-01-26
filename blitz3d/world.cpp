@@ -475,37 +475,52 @@ void World::collide( Object *src ){
 }
 */
 
-void World::update( float elapsed ){
+void World::update(float elapsed) {
+	stats3d[0] = 0;
 
-	stats3d[0]=0;
-
-	for( ;used_colls.size();used_colls.pop_back() ){
-		free_colls.push_back( used_colls.back() );
+	for (size_t i = 0; i < used_colls.size(); ++i) {
+		if (used_colls[i]) {
+			free_colls.push_back(used_colls[i]);
+		}
 	}
+	used_colls.clear();
 
 	enumEnabled();
 
-	vector<Object*>::const_iterator it;
-	for( it=_enabled.begin();it!=_enabled.end();++it ){
-		Object *o=*it;
+	for (int k = 0; k < 1000; ++k) {
+		_objsByType[k].clear();
+	}
 
-		if( int n=o->getCollisionType() ){
-			_objsByType[n].push_back(o);
+	vector<Object*>::const_iterator it;
+	for (it = _enabled.begin(); it != _enabled.end(); ++it) {
+		Object* o = *it;
+		if (!o) continue;
+
+		if (int n = o->getCollisionType()) {
+			if (n >= 0 && n < 1000) {
+				_objsByType[n].push_back(o);
+			}
 		}
 	}
 
-	for( it=_enabled.begin();it!=_enabled.end();++it ){
-		Object *o=*it;
+	for (it = _enabled.begin(); it != _enabled.end(); ++it) {
+		Object* o = *it;
+		if (!o) continue;
 
-		o->beginUpdate( elapsed );
+		try {
+			o->beginUpdate(elapsed);
 
-		if( o->getCollisionType() ) collide( o );
+			if (o->getCollisionType()) {
+				collide(o);
+			}
 
-		o->endUpdate();
-	}
-
-	for( int k=0;k<1000;++k ){
-		_objsByType[k].clear();
+			o->endUpdate();
+		}
+		catch (const std::exception& e) {
+			if (gx_runtime) {
+				gx_runtime->debugLog(("Update error for object: " + std::string(e.what())).c_str());
+			}
+		}
 	}
 }
 
@@ -560,51 +575,87 @@ void World::render( float tween ){
 	_mirrors.clear();
 	_listeners.clear();
 
+	while (!ord_que.empty()) ord_que.pop();
+	while (!cam_que.empty()) cam_que.pop();
+	while (!transparents.empty()) transparents.pop();
+
 	enumVisible();
 
-	vector<Object*>::const_iterator it;
-	for( it=_visible.begin();it!=_visible.end();++it ){
-		Object *o=*it;
+	for (auto it = _visible.begin(); it != _visible.end(); ++it) {
+		Object* o = *it;
+		if (!o || !o->beginRender(tween)) continue;
 
-		if( !o->beginRender(tween) ) continue;
-
-		if( Light *t=o->getLight() ) _lights.push_back(t->getGxLight());
-		else if( Camera *t=o->getCamera() ) cam_que.push(t);
-		else if( Mirror *t=o->getMirror() ) _mirrors.push_back(t);
-		else if( Listener *t=o->getListener() ) _listeners.push_back(t);
-		else if( Model *t=o->getModel() ){
-			if( t->getOrder() ) ord_que.push( t );
-			else unord_mods.push_back( t );
+		try {
+			if (Light* t = o->getLight()) {
+				if (t->getGxLight()) _lights.push_back(t->getGxLight());
+			}
+			else if (Camera* t = o->getCamera()) {
+				cam_que.push(t);
+			}
+			else if (Mirror* t = o->getMirror()) {
+				_mirrors.push_back(t);
+			}
+			else if (Listener* t = o->getListener()) {
+				_listeners.push_back(t);
+			}
+			else if (Model* t = o->getModel()) {
+				if (!t) continue;
+				if (t->getOrder()) {
+					ord_que.push(t);
+				}
+				else {
+					unord_mods.push_back(t);
+				}
+			}
+		}
+		catch (...) {
+			gx_runtime->debugLog("Warning: Failed to process render object");
+			continue;
 		}
 	}
 
-	for( ;ord_que.size();ord_que.pop() ) ord_mods.push_back( ord_que.top() );
-
-//	gx_runtime->debugLog( "RenderWorld" );
-
-	if( !gx_scene->begin( _lights ) ) return;
-
-	for( ;cam_que.size();cam_que.pop() ){
-
-		Camera *cam=cam_que.top();
-
-		if( !cam->beginRenderFrame() ) continue;
-
-		vector<Mirror*>::const_iterator mir_it;
-		for( mir_it=_mirrors.begin();mir_it!=_mirrors.end();++mir_it ){
-			render( cam,*mir_it );
-		}
-
-		render( cam,0 );
+	ord_mods.clear();
+	while (!ord_que.empty()) {
+		Model* model = ord_que.top();
+		if (model) ord_mods.push_back(model);
+		ord_que.pop();
 	}
 
-	gx_scene->end();
+	if (!gx_scene || !gx_scene->begin(_lights)) {
+		gx_runtime->debugLog("Failed to begin render session");
+		return;
+	}
 
-//	gx_runtime->debugLog( "End RenderWorld" );
+	try {
+		while (!cam_que.empty()) {
+			Camera* cam = cam_que.top();
+			cam_que.pop();
 
-	vector<Listener*>::const_iterator lis_it;
-	for( lis_it=_listeners.begin();lis_it!=_listeners.end();++lis_it ){
-		(*lis_it)->renderListener();
+			if (!cam || !cam->beginRenderFrame()) continue;
+
+			// mirrors
+			for (auto mir_it = _mirrors.begin(); mir_it != _mirrors.end(); ++mir_it) {
+				if (*mir_it) render(cam, *mir_it);
+			}
+
+			// main scene
+			render(cam, nullptr);
+		}
+
+		gx_scene->end();
+
+		for (auto lis_it = _listeners.begin(); lis_it != _listeners.end(); ++lis_it) {
+			if (*lis_it) (*lis_it)->renderListener();
+		}
+
+	}
+	catch (const std::exception& e) {
+		gx_runtime->debugLog(("Render error: " + std::string(e.what())).c_str());
+		try {
+			gx_scene->end();
+		}
+		catch (...) {
+		}
 	}
 }
 
@@ -653,37 +704,54 @@ void World::render( Camera *cam,Mirror *mirror ){
 	}
 }
 
-void World::render( Model *mod,const RenderContext &rc ){
+void World::render(Model* mod, const RenderContext& rc) {
+	if (!mod) return;
 
-	bool trans=mod->render( rc );
+	try {
+		bool trans = mod->render(rc);
 
-	if( mod->queueSize( Model::QUEUE_OPAQUE ) ){
-		if( mod->getRenderSpace()==Model::RENDER_SPACE_LOCAL ){
-			gx_scene->setWorldMatrix( (gxScene::Matrix*)&mod->getRenderTform() );
-		}else{
-			gx_scene->setWorldMatrix( 0 );
+		if (mod->queueSize(Model::QUEUE_OPAQUE)) {
+			if (mod->getRenderSpace() == Model::RENDER_SPACE_LOCAL) {
+				gx_scene->setWorldMatrix((gxScene::Matrix*)&mod->getRenderTform());
+			}
+			else {
+				gx_scene->setWorldMatrix(0);
+			}
+			mod->renderQueue(Model::QUEUE_OPAQUE);
 		}
-		mod->renderQueue( Model::QUEUE_OPAQUE );
-	}
 
-	if( trans || mod->queueSize( Model::QUEUE_TRANSPARENT ) ){
-		transparents.push( mod );
+		if (trans || mod->queueSize(Model::QUEUE_TRANSPARENT)) {
+			transparents.push(mod);
+		}
+	}
+	catch (...) {
+		gx_runtime->debugLog("Warning: Failed to render model");
 	}
 }
 
-void World::flushTransparent(){
+void World::flushTransparent() {
+	bool local = true;
 
-	bool local=true;
+	try {
+		while (!transparents.empty()) {
+			Model* mod = transparents.top();
+			transparents.pop();
 
-	for( ;transparents.size();transparents.pop() ){
-		Model *mod=transparents.top();
-		if( mod->getRenderSpace()==Model::RENDER_SPACE_LOCAL ){
-			gx_scene->setWorldMatrix( (gxScene::Matrix*)&mod->getRenderTform() );
-			local=true;
-		}else if( local ){
-			gx_scene->setWorldMatrix( 0 );
-			local=false;
+			if (!mod) continue;
+
+			if (mod->getRenderSpace() == Model::RENDER_SPACE_LOCAL) {
+				gx_scene->setWorldMatrix((gxScene::Matrix*)&mod->getRenderTform());
+				local = true;
+			}
+			else if (local) {
+				gx_scene->setWorldMatrix(0);
+				local = false;
+			}
+
+			mod->renderQueue(Model::QUEUE_TRANSPARENT);
 		}
-		mod->renderQueue( Model::QUEUE_TRANSPARENT );
+	}
+	catch (...) {
+		gx_runtime->debugLog("Warning: Failed to flush transparent objects");
 	}
 }
