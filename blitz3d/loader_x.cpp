@@ -22,8 +22,29 @@ static void parseAnimKey( IDirectXFileData *fileData,MeshModel *e ){
 	DWORD sz;int *data;
 	if( fileData->GetData( 0,&sz,(void**)&data )<0 ) return;
 
+	if (sz < sizeof(int) * 2) return;
+
 	int type=*data++;
 	int cnt=*data++;
+
+	if (cnt < 0 || cnt > 10000) {
+		return;
+	}
+
+	size_t expected_size = sizeof(int) * 2;
+	for (int k = 0; k < cnt; ++k) {
+		expected_size += sizeof(int) * 2;
+		int n = data[1];
+		if (n < 0 || n > 16) {
+			return;
+		}
+		expected_size += sizeof(float) * n;
+	}
+
+	if (sz < expected_size) {
+		return;
+	}
+
 	Animation anim=e->getAnimation();
 	for( int k=0;k<cnt;++k ){
 		int time=*data++;

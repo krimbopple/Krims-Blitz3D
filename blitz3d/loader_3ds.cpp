@@ -33,13 +33,30 @@ static map<string,Brush> materials_map;
 static map<string,MeshModel*> name_map;
 static map<int,MeshModel*> id_map;
 
-static int nextChunk(){
-	in.pubseekoff( chunk_end,ios_base::beg );
-	if( chunk_end==parent_end.back() ) return 0;
-	unsigned short id;int len;
-	in.sgetn( (char*)&id,2 );
-	in.sgetn( (char*)&len,4 );
-	chunk_end=(int)in.pubseekoff( 0,ios_base::cur )+len-6;
+static int nextChunk() {
+	in.pubseekoff(chunk_end, ios_base::beg);
+	if (chunk_end == parent_end.back()) return 0;
+
+	unsigned short id;
+	int len;
+
+	streampos current_pos = in.pubseekoff(0, ios_base::cur);
+	streampos file_end = in.pubseekoff(0, ios_base::end);
+	in.pubseekoff(current_pos, ios_base::beg);
+
+	if (file_end - current_pos < 6) {
+		return 0;
+	}
+
+	in.sgetn((char*)&id, 2);
+	in.sgetn((char*)&len, 4);
+
+	if (len < 6 || len > 100 * 1024 * 1024) {
+		chunk_end = file_end;
+		return 0;
+	}
+
+	chunk_end = (int)in.pubseekoff(0, ios_base::cur) + len - 6;
 	return id;
 }
 

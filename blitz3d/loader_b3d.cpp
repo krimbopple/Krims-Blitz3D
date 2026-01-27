@@ -116,6 +116,10 @@ static void readTextures(){
 static void readBrushes(){
 	int n_texs=readInt();
 
+	if (n_texs < 0 || n_texs > 8) {
+		n_texs = min(n_texs, 8);
+	}
+
 	int tex_id[8]={-1,-1,-1,-1,-1,-1,-1,-1};
 
 	while( chunkSize() ){
@@ -150,6 +154,14 @@ static int readVertices(){
 	int tc_sets=readInt();
 	int tc_size=readInt();
 
+	if (tc_size < 1 || tc_size > 4) {
+		tc_size = 2;
+	}
+
+	if (tc_sets > 2) {
+		tc_sets = 2;
+	}
+
 	float tc[4]={0};
 
 	Surface::Vertex t;
@@ -161,9 +173,11 @@ static int readVertices(){
 		if( flags&2 ){
 			readColor( &t.color );
 		}
-		for( int k=0;k<tc_sets;++k ){
-			readFloatArray( tc,tc_size );
-			if( k<2 ) memcpy( t.tex_coords[k],tc,8 );
+		for (int k = 0; k < tc_sets; ++k) {
+			readFloatArray(tc, min(tc_size, 4));
+			if (k < 2) {
+				memcpy(t.tex_coords[k], tc, min(tc_size * sizeof(float), 8u));
+			}
 		}
 		MeshLoader::addVertex( t );
 	}

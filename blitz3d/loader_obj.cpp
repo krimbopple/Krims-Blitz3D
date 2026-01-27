@@ -181,9 +181,15 @@ static MeshModel* parseOBJ(const string& filename) {
                 if (v.normal < 0) v.normal = normals.size() + v.normal;
                 if (v.texcoord < 0) v.texcoord = texcoords.size() + v.texcoord;
 
-                if (v.position < 0 || v.position >= (int)positions.size()) v.position = 0;
-                if (v.normal < 0 || v.normal >= (int)normals.size()) v.normal = 0;
-                if (v.texcoord < 0 || v.texcoord >= (int)texcoords.size()) v.texcoord = 0;
+                if (v.position <= 0 || v.position >= (int)positions.size()) {
+                    v.position = 0;
+                }
+                if (v.normal < 0 || v.normal >= (int)normals.size()) {
+                    v.normal = 0;
+                }
+                if (v.texcoord < 0 || v.texcoord >= (int)texcoords.size()) {
+                    v.texcoord = 0;
+                }
 
                 face_vertices.push_back(v);
             }
@@ -203,6 +209,10 @@ static MeshModel* parseOBJ(const string& filename) {
                         }
                         else {
                             Surface::Vertex vertex;
+
+                            int pos_idx = max(0, min(v_key.position, (int)positions.size() - 1));
+                            int norm_idx = max(0, min(v_key.normal, (int)normals.size() - 1));
+                            int tex_idx = max(0, min(v_key.texcoord, (int)texcoords.size() - 1));
 
                             vertex.coords = positions[v_key.position];
 
