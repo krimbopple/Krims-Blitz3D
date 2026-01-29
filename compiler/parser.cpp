@@ -76,8 +76,8 @@ void Parser::parseChar( int c ){
 }
 
 StmtSeqNode *Parser::parseStmtSeq( int scope, bool debug ){
-	a_ptr<StmtSeqNode> stmts( d_new StmtSeqNode( incfile ) );
-	parseStmtSeq( stmts,scope, debug );
+	std::unique_ptr<StmtSeqNode> stmts(d_new StmtSeqNode(incfile));
+	parseStmtSeq(stmts.get(), scope, debug);
 	return stmts.release();
 }
 
@@ -113,7 +113,7 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 
 				included.insert( incfile );
 
-				a_ptr<StmtSeqNode> ss( parseStmtSeq( scope, debug ) );
+				std::unique_ptr<StmtSeqNode> ss(parseStmtSeq(scope, debug));
 				if( toker->curr()!=EOF ) exp( "end-of-file" );
 
 				result=d_new IncludeNode( incfile,ss.release() );
@@ -152,7 +152,7 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 					} else { result = 0; }
 				}else{
 					//must be a var
-					a_ptr<VarNode> var( parseVar( ident,tag ) );
+					std::unique_ptr<VarNode> var(parseVar(ident, tag));
 					if( toker->curr()!='=' ) exp( "variable assignment" );
 					toker->next();ExprNode *expr=parseExpr( false );
 					result=d_new AssNode( var.release(),expr );
@@ -168,8 +168,8 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 		case WHILE:
 			{
 				toker->next();
-				a_ptr<ExprNode> expr( parseExpr( false ) );
-				a_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
+				std::unique_ptr<ExprNode> expr(parseExpr(false));
+				std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 				int pos=toker->pos();
 				if( toker->curr()!=WEND ) exp( "'Wend'" );
 				toker->next();
@@ -179,7 +179,7 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 		case REPEAT:
 			{
 				toker->next();ExprNode *expr=0;
-				a_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
+				std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 				int curr=toker->curr();
 				int pos=toker->pos();
 				if( curr!=UNTIL && curr!=FOREVER ) exp( "'Until' or 'Forever'" );
@@ -190,19 +190,19 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 		case SELECT:
 			{
 				toker->next();ExprNode *expr=parseExpr( false );
-				a_ptr<SelectNode> selNode( d_new SelectNode( expr ) );
+				std::unique_ptr<SelectNode> selNode(d_new SelectNode(expr));
 				for(;;){
 					while( isTerm( toker->curr() ) ) toker->next();
 					if( toker->curr()==CASE ){
 						toker->next();
-						a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+						std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 						if( !exprs->size() ) exp( "expression sequence" );
-						a_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
+						std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 						selNode->push_back( d_new CaseNode( exprs.release(),stmts.release() ) );
 						continue;
 					}else if( toker->curr()==DEFAULT ){
 						toker->next();
-						a_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
+						std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 						if( toker->curr()!=ENDSELECT ) exp( "'End Select'" );
 						selNode->defStmts=stmts.release();
 						break;
@@ -217,28 +217,30 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 			break;
 		case FOR:
 			{
-				a_ptr<VarNode> var;
-				a_ptr<StmtSeqNode> stmts;
-				toker->next();var=parseVar();
+				std::unique_ptr<VarNode> var(parseVar());
+				std::unique_ptr<StmtSeqNode> stmts;
+				toker->next();
+
 				if( toker->curr()!='=' ) exp( "variable assignment" );
 				if( toker->next()==EACH ){
 					toker->next();
 					string ident=parseIdent();
-					stmts = parseStmtSeq(STMTS_BLOCK, debug);
+					std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 					int pos=toker->pos();
 					if( toker->curr()!=NEXT ) exp( "'Next'" );
 					toker->next();
 					result=d_new ForEachNode( var.release(),ident,stmts.release(),pos );
 				}else{
-					a_ptr<ExprNode> from,to,step;
-					from=parseExpr( false );
+					std::unique_ptr<ExprNode> from,to,step;
+					from = std::unique_ptr<ExprNode>(parseExpr(false));
 					if( toker->curr()!=TO ) exp( "'TO'" );
-					toker->next();to=parseExpr( false );
+					toker->next(); to = std::unique_ptr<ExprNode>(parseExpr(false));
 					//step...
 					if( toker->curr()==STEP ){
-						toker->next();step=parseExpr( false );
-					}else step=d_new IntConstNode( 1 );
-					stmts = parseStmtSeq(STMTS_BLOCK, debug);
+						toker->next(); step = std::unique_ptr<ExprNode>(parseExpr(false));
+					}
+					else step = std::unique_ptr<IntConstNode>(d_new IntConstNode(1));
+					stmts = std::unique_ptr<StmtSeqNode>(parseStmtSeq(STMTS_BLOCK, debug));
 					int pos=toker->pos();
 					if( toker->curr()!=NEXT ) exp( "'Next'" );
 					toker->next();
@@ -280,10 +282,10 @@ void Parser::parseStmtSeq( StmtSeqNode *stmts, int scope, bool debug ){
 		case INSERT:
 			{
 				toker->next();
-				a_ptr<ExprNode> expr1( parseExpr( false ) );
+				std::unique_ptr<ExprNode> expr1(parseExpr(false));
 				if( toker->curr()!=BEFORE && toker->curr()!=AFTER ) exp( "'Before' or 'After'" );
 				bool before=toker->curr()==BEFORE;toker->next();
-				a_ptr<ExprNode> expr2( parseExpr( false ) );
+				std::unique_ptr<ExprNode> expr2(parseExpr(false));
 				result=d_new InsertNode( expr1.release(),expr2.release(),before );
 			}
 			break;
@@ -383,14 +385,15 @@ VarNode *Parser::parseVar(){
 }
 
 VarNode *Parser::parseVar( const string &ident,const string &tag ){
-	a_ptr<VarNode> var;
+	std::unique_ptr<VarNode> var;
 	if( toker->curr()=='(' ){
 		toker->next();
-		a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+		std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 		if( toker->curr()!=')' ) exp( "')'" );
 		toker->next();
-		var=d_new ArrayVarNode( ident,tag,exprs.release() );
-	}else var=d_new IdentVarNode( ident,tag );
+		var = std::unique_ptr<ArrayVarNode>(d_new ArrayVarNode(ident, tag, exprs.release()));
+	}
+	else var = std::unique_ptr<IdentVarNode>(d_new IdentVarNode(ident, tag));
 
 	for(;;){
 		if( toker->curr()=='\\' ){
@@ -398,14 +401,14 @@ VarNode *Parser::parseVar( const string &ident,const string &tag ){
 			string ident=parseIdent();
 			string tag=parseTypeTag();
 			ExprNode *expr=d_new VarExprNode( var.release() );
-			var=d_new FieldVarNode( expr,ident,tag );
+			var = std::unique_ptr<FieldVarNode>(d_new FieldVarNode(expr, ident, tag));
 		}else if( toker->curr()=='[' ){
 			toker->next();
-			a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+			std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 			if( exprs->exprs.size()!=1 || toker->curr()!=']' ) exp( "']'" );
 			toker->next();
 			ExprNode *expr=d_new VarExprNode( var.release() );
-			var=d_new VectorVarNode( expr,exprs.release() );
+			var = std::unique_ptr<VectorVarNode>(d_new VectorVarNode(expr, exprs.release()));
 		}else{
 			break;
 		}
@@ -421,7 +424,7 @@ DeclNode *Parser::parseVarDecl( int kind,bool constant ){
 	if( toker->curr()=='[' ){
 		if( constant ) ex( "Blitz arrays may not be constant" );
 		toker->next();
-		a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+		std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 		if( exprs->size()!=1 || toker->curr()!=']' ) exp( "']'" );
 		toker->next();
 		d=d_new VectorDeclNode( ident,tag,exprs.release(),kind );
@@ -441,7 +444,7 @@ DimNode *Parser::parseArrayDecl(){
 	string ident=parseIdent();
 	string tag=parseTypeTag();
 	if( toker->curr()!='(' ) exp( "'('" );
-	toker->next();a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+	toker->next(); std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 	if( toker->curr()!=')' ) exp( "')'" );
 	if( !exprs->size() ) ex( "can't have a 0 dimensional array" );
 	toker->next();
@@ -456,7 +459,7 @@ DeclNode *Parser::parseFuncDecl(bool debug){
 	string ident=parseIdent();
 	string tag=parseTypeTag();
 	if( toker->curr()!='(' ) exp( "'('" );
-	a_ptr<DeclSeqNode> params( d_new DeclSeqNode() );
+	std::unique_ptr<DeclSeqNode> params(d_new DeclSeqNode());
 	if( toker->next()!=')' ){
 		for(;;){
 			params->push_back( parseVarDecl( DECL_PARAM,false ) );
@@ -466,7 +469,7 @@ DeclNode *Parser::parseFuncDecl(bool debug){
 		if( toker->curr()!=')' ) exp( "')'" );
 	}
 	toker->next();
-	a_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
+	std::unique_ptr<StmtSeqNode> stmts(parseStmtSeq(STMTS_BLOCK, debug));
 	if( toker->curr()!=ENDFUNCTION ) exp( "'End Function'" );
 	StmtNode *ret=d_new ReturnNode(0);ret->pos=toker->pos();
 	stmts->push_back( ret );toker->next();
@@ -479,7 +482,7 @@ DeclNode *Parser::parseStructDecl(){
 	int pos=toker->pos();
 	string ident=parseIdent();
 	while( toker->curr()=='\n' ) toker->next();
-	a_ptr<DeclSeqNode> fields( d_new DeclSeqNode() );
+	std::unique_ptr<DeclSeqNode> fields(d_new DeclSeqNode());
 	while( toker->curr()==FIELD ){
 		do{
 			toker->next();
@@ -495,25 +498,25 @@ DeclNode *Parser::parseStructDecl(){
 }
 
 IfNode* Parser::parseIf(bool debug) {
-	a_ptr<ExprNode> expr;
-	a_ptr<StmtSeqNode> stmts,elseOpt;
+	std::unique_ptr<ExprNode> expr;
+	std::unique_ptr<StmtSeqNode> stmts, elseOpt;
 
-	expr=parseExpr( false );
+	expr = std::unique_ptr<ExprNode>(parseExpr(false));
 	if( toker->curr()==THEN ) toker->next();
 
 	bool blkif=isTerm( toker->curr() );
-	stmts = parseStmtSeq(blkif ? STMTS_BLOCK : STMTS_LINE, debug);
+	stmts = std::unique_ptr<StmtSeqNode>(parseStmtSeq(blkif ? STMTS_BLOCK : STMTS_LINE, debug));
 
 	if( toker->curr()==ELSEIF ){
 		int pos=toker->pos();
 		toker->next();
 		IfNode *ifnode=parseIf(debug);
 		ifnode->pos=pos;
-		elseOpt=d_new StmtSeqNode( incfile );
+		elseOpt = std::unique_ptr<StmtSeqNode>(d_new StmtSeqNode(incfile));
 		elseOpt->push_back( ifnode );
 	}else if( toker->curr()==ELSE ){
 		toker->next();
-		elseOpt=parseStmtSeq( blkif ? STMTS_BLOCK : STMTS_LINE, debug );
+		elseOpt = std::unique_ptr<StmtSeqNode>(parseStmtSeq(blkif ? STMTS_BLOCK : STMTS_LINE, debug));
 	}
 	if( blkif ){
 		if( toker->curr()!=ENDIF ) exp( "'EndIf'" );
@@ -523,7 +526,7 @@ IfNode* Parser::parseIf(bool debug) {
 }
 
 ExprSeqNode *Parser::parseExprSeq(){
-	a_ptr<ExprSeqNode> exprs( d_new ExprSeqNode() );
+	std::unique_ptr<ExprSeqNode> exprs(d_new ExprSeqNode());
 	bool opt=true;
 	while( ExprNode *e=parseExpr( opt ) ){
 		exprs->push_back( e );
@@ -544,84 +547,84 @@ ExprNode *Parser::parseExpr( bool opt ){
 
 ExprNode *Parser::parseExpr1( bool opt ){
 
-	a_ptr<ExprNode> lhs(parseExpr1AND(opt));
+	std::unique_ptr<ExprNode> lhs(parseExpr1AND(opt));
 	if (!lhs) return 0;
 	for (;;) {
 		int c = toker->curr();
 		if (c != OR && c != LOR && c != XOR) return lhs.release();
 		toker->next(); ExprNode* rhs = parseExpr1AND(false);
-		lhs = d_new BinExprNode(c, lhs.release(), rhs);
+		lhs = std::unique_ptr<ExprNode>(d_new BinExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode* Parser::parseExpr1AND(bool opt) {
 
-	a_ptr<ExprNode> lhs( parseExpr2( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseExpr2(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if (c != AND) return lhs.release();
 		toker->next();ExprNode *rhs=parseExpr2( false );
-		lhs=d_new BinExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new BinExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode *Parser::parseExpr2( bool opt ){
 
-	a_ptr<ExprNode> lhs( parseExpr3( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseExpr3(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if( c!='<' && c!='>' && c!='=' && c!=LE && c!=GE && c!=NE ) return lhs.release();
 		toker->next();ExprNode *rhs=parseExpr3( false );
-		lhs=d_new RelExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new RelExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode *Parser::parseExpr3( bool opt ){
 
-	a_ptr<ExprNode> lhs( parseExpr4( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseExpr4(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if( c!='+' && c!='-' ) return lhs.release();
 		toker->next();ExprNode *rhs=parseExpr4( false );
-		lhs=d_new ArithExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new RelExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode *Parser::parseExpr4( bool opt ){
-	a_ptr<ExprNode> lhs( parseExpr5( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseExpr5(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if( c!=SHL && c!=SHR && c!=SAR ) return lhs.release();
 		toker->next();ExprNode *rhs=parseExpr5( false );
-		lhs=d_new BinExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new ArithExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode *Parser::parseExpr5( bool opt ){
 
-	a_ptr<ExprNode> lhs( parseExpr6( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseExpr6(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if( c!='*' && c!='/' && c!=MOD ) return lhs.release();
 		toker->next();ExprNode *rhs=parseExpr6( false );
-		lhs=d_new ArithExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new BinExprNode(c, lhs.release(), rhs));
 	}
 }
 
 ExprNode *Parser::parseExpr6( bool opt ){
 
-	a_ptr<ExprNode> lhs( parseUniExpr( opt ) );
+	std::unique_ptr<ExprNode> lhs(parseUniExpr(opt));
 	if( !lhs ) return 0;
 	for(;;){
 		int c=toker->curr();
 		if( c!='^' ) return lhs.release();
 		toker->next();ExprNode *rhs=parseUniExpr( false );
-		lhs=d_new ArithExprNode( c,lhs.release(),rhs );
+		lhs = std::unique_ptr<ExprNode>(d_new ArithExprNode(c, lhs.release(), rhs));
 	}
 }
 
@@ -685,7 +688,7 @@ ExprNode *Parser::parseUniExpr( bool opt ){
 
 ExprNode *Parser::parsePrimary( bool opt ){
 
-	a_ptr<ExprNode> expr;
+	std::unique_ptr<ExprNode> expr;
 	string t,ident,tag;
 	ExprNode *result=0;
 	int n,k;
@@ -693,7 +696,7 @@ ExprNode *Parser::parsePrimary( bool opt ){
 	switch( toker->curr() ){
 	case '(':
 		toker->next();
-		expr=parseExpr( false );
+		expr = std::unique_ptr<ExprNode>(parseExpr(false));
 		if( toker->curr()!=')' ) exp( "')'" );
 		toker->next();
 		result=expr.release();
@@ -757,7 +760,7 @@ ExprNode *Parser::parsePrimary( bool opt ){
 		if( toker->curr()=='(' && arrayDecls.find(ident)==arrayDecls.end() ){
 			//must be a func
 			toker->next();
-			a_ptr<ExprSeqNode> exprs( parseExprSeq() );
+			std::unique_ptr<ExprSeqNode> exprs(parseExprSeq());
 			if( toker->curr()!=')' ) exp( "')'" );
 			toker->next();
 			result=d_new CallNode( ident,tag,exprs.release() );

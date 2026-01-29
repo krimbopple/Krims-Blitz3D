@@ -8,6 +8,7 @@
 
 #include <string>
 #include <iostream>
+#include <memory>
 
 #ifdef MEMDEBUG
 
@@ -41,6 +42,7 @@ std::string fullfilename( const std::string &t );
 std::string filenamepath( const std::string &t );
 std::string filenamefile( const std::string &t );
 
+/*
 //lazy version of auto_ptr
 template<class T>
 class a_ptr{
@@ -56,6 +58,7 @@ public:
 private:
 	T *t;
 };
+*/
 
 //Speed-up for SLOW sstream
 class qstreambuf : public std::streambuf{

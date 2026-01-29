@@ -97,8 +97,8 @@ void VarDeclNode::translate( Codegen *g ){
 //////////////////////////
 void FuncDeclNode::proto( DeclSeq *d,Environ *e ){
 	Type *t=tagType( tag,e );if( !t ) t=Type::int_type;
-	a_ptr<DeclSeq> decls( d_new DeclSeq() );
-	params->proto( decls,e );
+	std::unique_ptr<DeclSeq> decls( d_new DeclSeq() );
+	params->proto(decls.get(),e );
 	sem_type=d_new FuncType( t,decls.release(),false,false );
 	if( !d->insertDecl( ident,sem_type,DECL_FUNC ) ){
 		delete sem_type;ex( "duplicate identifier" );

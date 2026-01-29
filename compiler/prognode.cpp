@@ -11,16 +11,16 @@ Environ *ProgNode::semant( Environ *e ){
 
 	StmtSeqNode::reset( stmts->file,file_lab );
 
-	a_ptr<Environ> env( d_new Environ( genLabel(),Type::int_type,0,e ) );
+	std::unique_ptr<Environ> env(d_new Environ(genLabel(), Type::int_type, 0, e));
 
-	structs->proto(env->typeDecls, env);
-	consts->proto(env->decls, env);
-	structs->semant(env);
-	funcs->proto(env->funcDecls, env);
-	stmts->semant(env);
-	funcs->semant(env);
-	datas->proto(env->decls, env);
-	datas->semant(env);
+	structs->proto(env->typeDecls, env.get());
+	consts->proto(env->decls, env.get());
+	structs->semant(env.get());
+	funcs->proto(env->funcDecls, env.get());
+	stmts->semant(env.get());
+	funcs->semant(env.get());
+	datas->proto(env->decls, env.get());
+	datas->semant(env.get());
 
 	sem_env=env.release();
 	return sem_env;
