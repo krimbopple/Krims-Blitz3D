@@ -480,6 +480,76 @@ float  bbGammaBlue( int n ){
 	return db;
 }
 
+void  bbSetGammaGPU(int r, int g, int b, float dr, float dg, float db) {
+	if (dr < 0) dr = 0;
+	else if (dr > 2.0f) dr = 2.0f;
+	if (dg < 0) dg = 0;
+	else if (dg > 2.0f) dg = 2.0f;
+	if (db < 0) db = 0;
+	else if (db > 2.0f) db = 2.0f;
+	gx_graphics->setGammaGPU(r, g, b, dr, dg, db);
+}
+
+void  bbUpdateGammaGPU(int calibrate) {
+	gx_graphics->updateGammaGPU(!!calibrate);
+}
+
+float  bbGammaRedGPU(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return dr;
+}
+
+float  bbGammaGreenGPU(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return dg;
+}
+
+float  bbGammaBlueGPU(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return db;
+}
+
+int bbGammaGPUSupported() {
+	return gx_graphics->isGammaGPUSupported() ? 1 : 0;
+}
+
+// tries gpu first then falls back to directdraw
+void  bbSetGammaUniversal(int r, int g, int b, float dr, float dg, float db) {
+	if (dr < 0) dr = 0;
+	else if (dr > 2.0f) dr = 2.0f;
+	if (dg < 0) dg = 0;
+	else if (dg > 2.0f) dg = 2.0f;
+	if (db < 0) db = 0;
+	else if (db > 2.0f) db = 2.0f;
+
+	gx_graphics->setGammaGPU(r, g, b, dr, dg, db);
+}
+
+void  bbUpdateGammaUniversal(int calibrate) {
+	gx_graphics->updateGammaGPU(!!calibrate);
+}
+
+float  bbGammaRedUniversal(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return dr;
+}
+
+float  bbGammaGreenUniversal(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return dg;
+}
+
+float  bbGammaBlueUniversal(int n) {
+	float dr, dg, db;
+	gx_graphics->getGammaGPU(n, n, n, &dr, &dg, &db);
+	return db;
+}
+
 gxCanvas *bbFrontBuffer(){
 	return gx_graphics->getFrontCanvas();
 }
@@ -1285,6 +1355,19 @@ void graphics_link( void (*rtSym)( const char *sym,void *pc ) ){
 	rtSym( "#GammaRed%red",bbGammaRed );
 	rtSym( "#GammaGreen%green",bbGammaGreen );
 	rtSym( "#GammaBlue%blue",bbGammaBlue );
+
+	rtSym("SetGammaGPU%src_red%src_green%src_blue#dest_red#dest_green#dest_blue", bbSetGammaGPU);
+	rtSym("UpdateGammaGPU%calibrate=0", bbUpdateGammaGPU);
+	rtSym("#GammaRedGPU%red", bbGammaRedGPU);
+	rtSym("#GammaGreenGPU%green", bbGammaGreenGPU);
+	rtSym("#GammaBlueGPU%blue", bbGammaBlueGPU);
+	rtSym("%GammaGPUSupported", bbGammaGPUSupported);
+
+	rtSym("SetGammaUniversal%src_red%src_green%src_blue#dest_red#dest_green#dest_blue", bbSetGammaUniversal);
+	rtSym("UpdateGammaUniversal%calibrate=0", bbUpdateGammaUniversal);
+	rtSym("#GammaRedUniversal%red", bbGammaRedUniversal);
+	rtSym("#GammaGreenUniversal%green", bbGammaGreenUniversal);
+	rtSym("#GammaBlueUniversal%blue", bbGammaBlueUniversal);
 
 	rtSym( "%FrontBuffer",bbFrontBuffer );
 	rtSym( "%BackBuffer",bbBackBuffer );

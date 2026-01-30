@@ -62,6 +62,9 @@ private:
 	DDGAMMARAMP _gammaRamp;
 	IDirectDrawGammaControl *_gamma;
 
+	bool _gammaGPUEnabled;
+	DDGAMMARAMP _gammaRampGPU;
+
 	/***** GX INTERFACE *****/
 public:
 	enum {
@@ -83,6 +86,12 @@ public:
 	void setGamma( int r,int g,int b,float dr,float dg,float db );
 	void getGamma( int r,int g,int b,float *dr,float *dg,float *db );
 	void updateGamma( bool calibrate );
+
+	void restoreDefaultGammaGPU();
+	void setGammaGPU(int r, int g, int b, float dr, float dg, float db);
+	void getGammaGPU(int r, int g, int b, float* dr, float* dg, float* db);
+	void updateGammaGPU(bool calibrate);
+	bool isGammaGPUSupported() const;
 
 	//ACCESSORS
 	int getWidth()const;

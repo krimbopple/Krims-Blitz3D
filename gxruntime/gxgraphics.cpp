@@ -38,10 +38,17 @@ runtime(rt),dirDraw(dd),dir3d(0),dir3dDev(0),def_font(0),gfx_lost(false),dummy_m
 	if( !_gamma ){
 		for( int k=0;k<256;++k ) _gammaRamp.red[k]=_gammaRamp.blue[k]=_gammaRamp.green[k]=k;
 	}
+
+	for (int k = 0; k < 256; ++k) _gammaRampGPU.red[k] = _gammaRampGPU.blue[k] = _gammaRampGPU.green[k] = k;
+	_gammaGPUEnabled = false;
 }
 
 gxGraphics::~gxGraphics(){
 	if( _gamma ) _gamma->Release();
+	if (_gammaGPUEnabled) {
+		restoreDefaultGammaGPU();
+	}
+
 #ifdef PRO
 	while( scene_set.size() ) freeScene( *scene_set.begin() );
 #endif
@@ -79,6 +86,71 @@ void gxGraphics::getGamma( int r,int g,int b,float *dr,float *dg,float *db ){
 	*dr=_gammaRamp.red[r&255]/257.0f;
 	*dg=_gammaRamp.green[g&255]/257.0f;
 	*db=_gammaRamp.blue[b&255]/257.0f;
+}
+
+void gxGraphics::restoreDefaultGammaGPU() {
+	if (!_gammaGPUEnabled) return;
+
+	HDC hdc = GetDC(NULL);
+	if (hdc) {
+		WORD defaultRamp[3][256];
+		for (int i = 0; i < 256; i++) {
+			defaultRamp[0][i] = defaultRamp[1][i] = defaultRamp[2][i] = (WORD)((i << 8) | i);
+		}
+
+		SetDeviceGammaRamp(hdc, defaultRamp);
+		ReleaseDC(NULL, hdc);
+		_gammaGPUEnabled = false;
+	}
+}
+
+void gxGraphics::setGammaGPU(int r, int g, int b, float dr, float dg, float db) {
+	_gammaRampGPU.red[r & 255] = static_cast<WORD>(dr * 65535.0f);
+	_gammaRampGPU.green[g & 255] = static_cast<WORD>(dg * 65535.0f);
+	_gammaRampGPU.blue[b & 255] = static_cast<WORD>(db * 65535.0f);
+}
+
+void gxGraphics::getGammaGPU(int r, int g, int b, float* dr, float* dg, float* db) {
+	*dr = _gammaRampGPU.red[r & 255] / 65535.0f;
+	*dg = _gammaRampGPU.green[g & 255] / 65535.0f;
+	*db = _gammaRampGPU.blue[b & 255] / 65535.0f;
+}
+
+void gxGraphics::updateGammaGPU(bool calibrate) {
+	HDC hdc = GetDC(NULL);
+	if (!hdc) return;
+
+	WORD gammaArray[3][256];
+
+	for (int i = 0; i < 256; i++) {
+		gammaArray[0][i] = _gammaRampGPU.red[i];
+		gammaArray[1][i] = _gammaRampGPU.green[i];
+		gammaArray[2][i] = _gammaRampGPU.blue[i];
+	}
+
+	// SetDeviceGammaRamp requires administrator, so this may or may not be completely cockblocked
+	if (SetDeviceGammaRamp(hdc, gammaArray)) {
+		_gammaGPUEnabled = true;
+	}
+	else {
+		if (_gamma) {
+			updateGamma(calibrate);
+		}
+	}
+
+	ReleaseDC(NULL, hdc);
+}
+
+bool gxGraphics::isGammaGPUSupported() const {
+	HDC hdc = GetDC(NULL);
+	if (!hdc) return false;
+
+	WORD testRamp[3][256];
+	BOOL canGet = GetDeviceGammaRamp(hdc, testRamp);
+
+	ReleaseDC(NULL, hdc);
+
+	return (canGet != FALSE);
 }
 
 void gxGraphics::backup(){
